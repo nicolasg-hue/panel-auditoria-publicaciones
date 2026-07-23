@@ -531,6 +531,29 @@ function buildDemoData(){
 }
 
 /* ============================================================================
+   JSONP — evita el bloqueo de CORS que sufren algunas cuentas de
+   Google Workspace con fetch() contra Apps Script. Una etiqueta <script>
+   dinámica no está sujeta a la política CORS del navegador.
+   ========================================================================== */
+function jsonpRequest(params){
+  return new Promise((resolve, reject) => {
+    const cbName = 'jsonp_cb_' + Date.now() + '_' + Math.floor(Math.random()*1e6);
+    const cleanup = () => { delete window[cbName]; script.remove(); };
+    window[cbName] = (data) => { cleanup(); resolve(data); };
+
+    const query = Object.keys(params)
+      .filter(k => params[k] !== undefined && params[k] !== null)
+      .map(k => encodeURIComponent(k) + '=' + encodeURIComponent(params[k]))
+      .join('&');
+
+    const script = document.createElement('script');
+    script.src = API_URL + '?' + query + '&callback=' + cbName;
+    script.onerror = () => { cleanup(); reject(new Error('No se pudo conectar con el servidor (revisá la URL o el despliegue)')); };
+    document.body.appendChild(script);
+  });
+}
+
+/* ============================================================================
    CARGA DE DATOS
    ========================================================================== */
 async function loadData(){
@@ -541,8 +564,7 @@ async function loadData(){
       showToast('Modo demo: configurá API_URL para conectar Google Sheets');
       return;
     }
-    const res = await fetch(API_URL + '?action=getAll');
-    const json = await res.json();
+    const json = await jsonpRequest({ action: 'getAll' });
     if (json.error) throw new Error(json.error);
     applyData(json);
   } catch (err){
@@ -1013,15 +1035,10 @@ async function suggestText(item, clave, btn){
             : `${item.Producto} - ${item.Categoria}`).slice(0, 60)
         : `[DEMO] Descripción optimizada de "${item.Producto}" para ${state.canal === 'Web' ? 'Web/SEO-GEO' : 'Mercado Libre'}, basada en tu texto base. Conectá API_URL y GEMINI_API_KEY para generar contenido real.`;
     } else {
-      const res = await fetch(API_URL, {
-        method: 'POST',
-        headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-        body: JSON.stringify({
-          action: 'suggestText', canal: state.canal, tipo,
-          textoBase, producto: item.Producto, categoria: item.Categoria
-        })
+      const json = await jsonpRequest({
+        action: 'suggestText', canal: state.canal, tipo,
+        textoBase, producto: item.Producto, categoria: item.Categoria
       });
-      const json = await res.json();
       if (json.error) throw new Error(json.error);
       sugerencia = json.sugerencia;
     }
@@ -1082,16 +1099,11 @@ async function generateAssetPrompt(item, clave, btn){
       await new Promise(r => setTimeout(r, 650));
       promptText = `[DEMO] Prompt de "${clave}" para "${item.Producto}", basado en: "${descripcionBase.slice(0,90)}…". Conectá API_URL y GEMINI_API_KEY para generar el prompt real.`;
     } else {
-      const res = await fetch(API_URL, {
-        method: 'POST',
-        headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-        body: JSON.stringify({
-          action: 'generatePrompt', canal: state.canal, tipoAsset: clave,
-          producto: item.Producto, categoria: item.Categoria,
-          descripcionBase: descripcionBase
-        })
+      const json = await jsonpRequest({
+        action: 'generatePrompt', canal: state.canal, tipoAsset: clave,
+        producto: item.Producto, categoria: item.Categoria,
+        descripcionBase: descripcionBase
       });
-      const json = await res.json();
       if (json.error) throw new Error(json.error);
       promptText = json.prompt;
     }
@@ -1131,15 +1143,10 @@ async function saveField(item, clave, valor){
 
   try {
     if (API_URL){
-      const res = await fetch(API_URL, {
-        method: 'POST',
-        headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-        body: JSON.stringify({
-          action: 'updateField', canal: state.canal, row: item._row,
-          mlaSku: item.MLA_SKU, campo: clave, valor: valor, usuario: state.currentUser
-        })
+      const json = await jsonpRequest({
+        action: 'updateField', canal: state.canal, row: item._row,
+        mlaSku: item.MLA_SKU, campo: clave, valor: valor, usuario: state.currentUser
       });
-      const json = await res.json();
       if (json.error) throw new Error(json.error);
       item.Score = json.score;
       updateScoreUI(item);
@@ -1190,16 +1197,11 @@ async function setStatus(item, estado, esConfirmacion){
 
   try {
     if (API_URL){
-      const res = await fetch(API_URL, {
-        method: 'POST',
-        headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-        body: JSON.stringify({
-          action: esConfirmacion ? 'confirmOptimization' : 'setStatus',
-          canal: state.canal, row: item._row, mlaSku: item.MLA_SKU,
-          estado: estado, usuario: state.currentUser
-        })
+      const json = await jsonpRequest({
+        action: esConfirmacion ? 'confirmOptimization' : 'setStatus',
+        canal: state.canal, row: item._row, mlaSku: item.MLA_SKU,
+        estado: estado, usuario: state.currentUser
       });
-      const json = await res.json();
       if (json.error) throw new Error(json.error);
     }
   } catch (err){
@@ -1228,8 +1230,7 @@ async function showResumenModal(){
   try {
     const resumen = API_URL
       ? await (async () => {
-          const res = await fetch(API_URL + '?action=getResumen&dias=7');
-          const json = await res.json();
+          const json = await jsonpRequest({ action: 'getResumen', dias: 7 });
           if (json.error) throw new Error(json.error);
           return json;
         })()
