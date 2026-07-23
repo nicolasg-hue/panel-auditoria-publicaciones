@@ -1,0 +1,1327 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Panel de Auditoría de Publicaciones</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+<style>
+/* ==========================================================================
+   TOKENS
+   ========================================================================== */
+:root{
+  --bg:#FAF9F6;
+  --surface:#FFFFFF;
+  --surface-2:#F3F1EC;
+  --border:#E7E3DA;
+  --border-soft:#F0EDE6;
+  --ink:#1B1A17;
+  --ink-soft:#6E6A62;
+  --ink-faint:#A6A199;
+
+  --ml:#B9822C;
+  --ml-strong:#8C6220;
+  --ml-soft:#FBF1DE;
+  --ml-ring:#E2A03F;
+
+  --web:#3E6FF0;
+  --web-strong:#2C52C4;
+  --web-soft:#EAF0FE;
+
+  --ok:#1F9D55;
+  --ok-soft:#E7F6ED;
+  --review:#8A63D2;
+  --review-soft:#F1ECFB;
+  --warn:#D97706;
+  --warn-soft:#FCF1DF;
+  --danger:#E5484D;
+  --danger-soft:#FCEBEC;
+
+  --radius-lg:18px;
+  --radius-md:12px;
+  --radius-sm:8px;
+  --shadow-sm:0 1px 2px rgba(27,26,23,0.04), 0 1px 1px rgba(27,26,23,0.03);
+  --shadow-md:0 8px 24px rgba(27,26,23,0.07);
+  --font-ui:'Inter',-apple-system,BlinkMacSystemFont,sans-serif;
+  --font-mono:'JetBrains Mono',ui-monospace,monospace;
+}
+
+*{box-sizing:border-box;}
+html,body{margin:0;padding:0;}
+body{
+  background:var(--bg);
+  color:var(--ink);
+  font-family:var(--font-ui);
+  font-size:14px;
+  line-height:1.5;
+  -webkit-font-smoothing:antialiased;
+}
+button{font-family:inherit;}
+::selection{background:var(--ml-soft);}
+
+/* Reduced motion */
+@media (prefers-reduced-motion: reduce){
+  *{animation:none !important; transition:none !important;}
+}
+
+/* ==========================================================================
+   LAYOUT SHELL
+   ========================================================================== */
+.app-shell{min-height:100vh;display:flex;flex-direction:column;}
+
+.topbar{
+  position:sticky; top:0; z-index:40;
+  display:flex; align-items:center; gap:16px;
+  padding:12px 24px;
+  background:rgba(250,249,246,0.85);
+  backdrop-filter:blur(10px);
+  border-bottom:1px solid var(--border);
+}
+.topbar .brand{
+  display:flex; align-items:center; gap:10px;
+  font-weight:700; font-size:15px; letter-spacing:-0.01em;
+  cursor:pointer; user-select:none;
+}
+.brand .mark{
+  width:26px;height:26px;border-radius:7px;
+  background:linear-gradient(135deg,var(--ml-ring),var(--web));
+  display:flex;align-items:center;justify-content:center;
+  color:white;font-family:var(--font-mono);font-size:11px;font-weight:700;
+}
+.topbar .crumbs{color:var(--ink-soft); font-size:13px; display:flex; align-items:center; gap:6px;}
+.topbar .crumbs .sep{color:var(--ink-faint);}
+.topbar .crumbs .active{color:var(--ink); font-weight:600;}
+.topbar-spacer{flex:1;}
+.user-select{
+  display:flex; align-items:center; gap:8px;
+  padding:6px 10px; border:1px solid var(--border); border-radius:10px;
+  background:var(--surface); font-size:13px; cursor:pointer;
+}
+.user-select select{border:none; background:transparent; font-family:inherit; font-size:13px; color:var(--ink); cursor:pointer;}
+.avatar{
+  width:22px;height:22px;border-radius:50%;
+  background:var(--surface-2); display:flex;align-items:center;justify-content:center;
+  font-size:10px; font-weight:700; color:var(--ink-soft);
+}
+
+.main{flex:1; padding:28px 24px 80px; max-width:1180px; width:100%; margin:0 auto;}
+
+/* ==========================================================================
+   HOME — dos tarjetas grandes
+   ========================================================================== */
+.home-header{margin-bottom:22px;}
+.home-header h1{font-size:22px; margin:0 0 4px; letter-spacing:-0.02em;}
+.home-header p{margin:0; color:var(--ink-soft); font-size:14px;}
+
+.channel-grid{
+  display:grid; grid-template-columns:1fr 1fr; gap:18px;
+}
+@media (max-width:760px){ .channel-grid{grid-template-columns:1fr;} }
+
+.channel-card{
+  background:var(--surface); border:1px solid var(--border); border-radius:var(--radius-lg);
+  padding:24px; cursor:pointer; position:relative; overflow:hidden;
+  transition:transform .15s ease, box-shadow .15s ease, border-color .15s ease;
+}
+.channel-card:hover{ transform:translateY(-2px); box-shadow:var(--shadow-md); }
+.channel-card:focus-visible{ outline:2px solid var(--ink); outline-offset:2px; }
+.channel-card.ml{border-top:3px solid var(--ml-ring);}
+.channel-card.web{border-top:3px solid var(--web);}
+
+.channel-card .head{display:flex; align-items:center; justify-content:space-between; margin-bottom:18px;}
+.channel-card .title{display:flex; align-items:center; gap:10px; font-size:16px; font-weight:700;}
+.dot{width:9px;height:9px;border-radius:50%;}
+.dot.ml{background:var(--ml-ring);}
+.dot.web{background:var(--web);}
+.channel-card .pct{font-family:var(--font-mono); font-size:26px; font-weight:700;}
+
+.stat-row{display:grid; grid-template-columns:repeat(4,1fr); gap:10px; margin-bottom:18px;}
+.stat{
+  background:var(--surface-2); border-radius:var(--radius-sm); padding:10px 12px;
+}
+.stat .n{font-family:var(--font-mono); font-size:18px; font-weight:700; display:block;}
+.stat .l{font-size:11px; color:var(--ink-soft); text-transform:uppercase; letter-spacing:.04em;}
+
+.progress-track{height:8px; border-radius:6px; background:var(--surface-2); overflow:hidden;}
+.progress-fill{height:100%; border-radius:6px; transition:width .4s ease;}
+.progress-fill.ml{background:linear-gradient(90deg,var(--ml-ring),var(--ml-strong));}
+.progress-fill.web{background:linear-gradient(90deg,var(--web),var(--web-strong));}
+
+/* ==========================================================================
+   FILTER BAR + LIST
+   ========================================================================== */
+.list-toolbar{display:flex; align-items:center; gap:10px; margin-bottom:16px; flex-wrap:wrap;}
+.back-btn{
+  border:1px solid var(--border); background:var(--surface); border-radius:10px;
+  padding:8px 12px; font-size:13px; font-weight:600; cursor:pointer; color:var(--ink);
+  display:flex; align-items:center; gap:6px;
+}
+.back-btn:hover{background:var(--surface-2);}
+
+.filters{
+  display:flex; flex-wrap:wrap; gap:8px; margin-bottom:14px;
+  background:var(--surface); border:1px solid var(--border); padding:12px; border-radius:var(--radius-md);
+}
+.filters select, .filters input[type="text"]{
+  border:1px solid var(--border); border-radius:8px; padding:7px 10px; font-size:13px;
+  background:var(--surface); color:var(--ink); font-family:inherit;
+}
+.filters input[type="text"]{min-width:170px;}
+.view-tabs{display:flex; gap:4px; margin-left:auto;}
+.view-tabs button{
+  border:1px solid var(--border); background:var(--surface); padding:6px 12px; border-radius:8px;
+  font-size:12.5px; cursor:pointer; color:var(--ink-soft); font-weight:600;
+}
+.view-tabs button.active{background:var(--ink); color:white; border-color:var(--ink);}
+
+.item-list{display:flex; flex-direction:column; gap:8px;}
+.item-row{
+  display:grid; grid-template-columns:110px 100px 1fr 130px 110px 90px 70px; align-items:center; gap:14px;
+  background:var(--surface); border:1px solid var(--border); border-radius:var(--radius-md);
+  padding:12px 16px; cursor:pointer; transition:border-color .12s ease, background .12s ease;
+}
+.item-row:hover{border-color:var(--ink-faint); background:var(--surface-2);}
+@media (max-width:900px){
+  .item-row{grid-template-columns:1fr; gap:6px;}
+  .item-row .col-hide-mobile{display:none;}
+}
+.mono{font-family:var(--font-mono);}
+.item-row .mla{font-family:var(--font-mono); font-size:12.5px; color:var(--ink-soft);}
+.item-row .producto{font-weight:600; font-size:13.5px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;}
+.item-row .meta{font-size:12px; color:var(--ink-soft);}
+
+.badge{
+  display:inline-flex; align-items:center; gap:5px; padding:3px 9px; border-radius:20px;
+  font-size:11.5px; font-weight:600; white-space:nowrap;
+}
+.badge::before{content:''; width:6px;height:6px;border-radius:50%;}
+.badge.pendiente{background:var(--surface-2); color:var(--ink-soft);}
+.badge.pendiente::before{background:var(--ink-faint);}
+.badge.revision{background:var(--review-soft); color:var(--review);}
+.badge.revision::before{background:var(--review);}
+.badge.cambios{background:var(--danger-soft); color:var(--danger);}
+.badge.cambios::before{background:var(--danger);}
+.badge.optimizada{background:var(--ok-soft); color:var(--ok);}
+.badge.optimizada::before{background:var(--ok);}
+
+.score-pill{
+  font-family:var(--font-mono); font-weight:700; font-size:12.5px;
+  padding:3px 8px; border-radius:8px; background:var(--surface-2);
+}
+.empty-state{
+  text-align:center; padding:60px 20px; color:var(--ink-soft);
+  border:1px dashed var(--border); border-radius:var(--radius-lg);
+}
+.empty-state h3{color:var(--ink); margin-bottom:6px;}
+
+/* ==========================================================================
+   FICHA DE AUDITORÍA (detail)
+   ========================================================================== */
+.detail-header{
+  background:var(--surface); border:1px solid var(--border); border-radius:var(--radius-lg);
+  padding:20px 22px; margin-bottom:18px; display:flex; justify-content:space-between; gap:20px; flex-wrap:wrap;
+}
+.detail-header .id-block .mla{font-family:var(--font-mono); font-size:13px; color:var(--ink-soft);}
+.detail-header .id-block h2{margin:2px 0 8px; font-size:19px; letter-spacing:-0.01em; max-width:560px;}
+.detail-header .chips{display:flex; gap:8px; flex-wrap:wrap;}
+.chip{font-size:11.5px; padding:3px 9px; border-radius:8px; background:var(--surface-2); color:var(--ink-soft); font-weight:600;}
+
+.score-gauge{display:flex; flex-direction:column; align-items:center; gap:4px; min-width:110px;}
+.score-gauge svg{transform:rotate(-90deg);}
+.score-gauge .value{font-family:var(--font-mono); font-weight:700; font-size:20px; position:relative; margin-top:-72px;}
+.score-gauge .label{font-size:11px; color:var(--ink-soft); text-transform:uppercase; letter-spacing:.04em; margin-top:38px;}
+
+.confirm-btn{
+  border:none; background:var(--ok); color:white; font-weight:700; font-size:13.5px;
+  padding:10px 16px; border-radius:10px; cursor:pointer; display:flex; align-items:center; gap:8px;
+  box-shadow:var(--shadow-sm);
+}
+.confirm-btn:hover{background:#188045;}
+.confirm-btn:disabled{background:var(--ink-faint); cursor:not-allowed;}
+
+.checklist-sections{display:flex; flex-direction:column; gap:14px;}
+.section-card{
+  background:var(--surface); border:1px solid var(--border); border-radius:var(--radius-lg); padding:18px 20px;
+}
+.section-card h3{margin:0 0 14px; font-size:14px; font-weight:700; display:flex; align-items:center; gap:8px;}
+.section-card h3 .count{font-family:var(--font-mono); font-weight:500; color:var(--ink-soft); font-size:12px;}
+
+.field-row{
+  display:grid; grid-template-columns:220px 1fr; gap:16px; align-items:center;
+  padding:10px 0; border-bottom:1px solid var(--border-soft);
+}
+.field-row:last-child{border-bottom:none;}
+.field-row label{font-size:13px; font-weight:500; color:var(--ink);}
+
+.chip-toggle{display:flex; gap:6px; flex-wrap:wrap;}
+.chip-toggle button{
+  border:1px solid var(--border); background:var(--surface); padding:6px 12px; border-radius:8px;
+  font-size:12.5px; font-weight:600; cursor:pointer; color:var(--ink-soft); transition:all .12s ease;
+}
+.chip-toggle button[data-val="OK"].active{background:var(--ok-soft); color:var(--ok); border-color:var(--ok);}
+.chip-toggle button[data-val="Pendiente"].active{background:var(--surface-2); color:var(--ink); border-color:var(--ink-faint);}
+.chip-toggle button[data-val="Incorrecto"].active{background:var(--danger-soft); color:var(--danger); border-color:var(--danger);}
+
+.field-row textarea, .field-row input[type="text"]{
+  width:100%; border:1px solid var(--border); border-radius:8px; padding:8px 10px;
+  font-family:inherit; font-size:13px; resize:vertical; min-height:38px; background:var(--surface);
+}
+.field-row textarea:focus, .field-row input:focus{outline:2px solid var(--ml-ring); outline-offset:-1px;}
+
+.save-dot{width:6px;height:6px;border-radius:50%; background:var(--ink-faint); display:inline-block; margin-left:6px;}
+.save-dot.saved{background:var(--ok);}
+.save-dot.saving{background:var(--warn);}
+
+.field-content{display:flex; flex-direction:column; gap:8px;}
+.field-content-top{display:flex; align-items:center; flex-wrap:wrap; gap:8px;}
+.ai-prompt-btn{
+  border:1px solid var(--border); background:var(--surface); color:var(--ink-soft);
+  padding:6px 11px; border-radius:8px; font-size:12px; font-weight:600; cursor:pointer;
+  display:inline-flex; align-items:center; gap:6px; white-space:nowrap;
+}
+.ai-prompt-btn:hover{background:var(--surface-2); color:var(--ink); border-color:var(--ink-faint);}
+.ai-prompt-btn:disabled{opacity:.55; cursor:not-allowed;}
+.ai-prompt-box{
+  background:var(--surface-2); border:1px solid var(--border); border-radius:var(--radius-sm);
+  padding:10px 12px; font-size:12px; line-height:1.5; white-space:pre-wrap;
+  display:none; max-height:220px; overflow-y:auto;
+}
+.ai-prompt-box.open{display:block;}
+.ai-prompt-box.error{color:var(--danger);}
+.ai-prompt-box .copy-mini{
+  display:inline-block; margin-top:8px; font-size:11.5px; font-weight:700;
+  background:var(--surface); border:1px solid var(--border); border-radius:6px;
+  padding:4px 10px; cursor:pointer; color:var(--ink);
+}
+.ai-prompt-box .copy-mini:hover{background:var(--surface-2);}
+.mini-spinner{
+  width:11px; height:11px; border-radius:50%; border:2px solid var(--border);
+  border-top-color:var(--web); display:inline-block; animation:spin .7s linear infinite;
+}
+.suggest-actions{display:flex; gap:8px; margin-top:10px;}
+.suggest-actions button{
+  font-size:11.5px; font-weight:700; padding:5px 11px; border-radius:7px;
+  border:1px solid var(--border); cursor:pointer; background:var(--surface); color:var(--ink);
+}
+.suggest-actions .use-btn{background:var(--ok); color:#fff; border-color:var(--ok);}
+.suggest-actions .use-btn:hover{background:#188045;}
+.suggest-actions .discard-btn{color:var(--ink-soft); background:transparent;}
+.suggest-actions .discard-btn:hover{background:var(--surface-2);}
+.char-counter{
+  font-size:11px; font-weight:600; margin-top:4px; display:inline-block;
+}
+.char-counter.ok{color:var(--ok);}
+.char-counter.warn{color:var(--warn);}
+.char-counter.danger{color:var(--danger);}
+.modal.wide{max-width:640px;}
+.resumen-range{color:var(--ink-soft); font-size:12.5px; margin-bottom:14px;}
+.resumen-table{width:100%; border-collapse:collapse; font-size:13px;}
+.resumen-table th{
+  text-align:left; font-size:11px; text-transform:uppercase; letter-spacing:.04em;
+  color:var(--ink-soft); padding:6px 8px; border-bottom:1px solid var(--border);
+}
+.resumen-table td{padding:8px; border-bottom:1px solid var(--border-soft);}
+.resumen-table tr:last-child td{border-bottom:none;}
+.resumen-table td.num{font-family:var(--font-mono); text-align:right;}
+.resumen-total{
+  display:flex; justify-content:space-between; margin-top:14px; padding-top:12px;
+  border-top:1px solid var(--border); font-size:13px; font-weight:700;
+}
+
+.obs-general textarea{min-height:90px;}
+
+.nav-footer{
+  position:sticky; bottom:0; margin-top:22px; padding:14px 0; background:linear-gradient(180deg,rgba(250,249,246,0),var(--bg) 30%);
+  display:flex; justify-content:space-between; gap:10px; flex-wrap:wrap;
+}
+.nav-footer .group{display:flex; gap:8px;}
+.nav-btn{
+  border:1px solid var(--border); background:var(--surface); border-radius:10px; padding:9px 14px;
+  font-size:13px; font-weight:600; cursor:pointer; color:var(--ink);
+}
+.nav-btn:hover{background:var(--surface-2);}
+.nav-btn.primary{background:var(--ink); color:white; border-color:var(--ink);}
+
+.toast{
+  position:fixed; bottom:22px; left:50%; transform:translateX(-50%);
+  background:var(--ink); color:white; padding:10px 18px; border-radius:10px; font-size:13px;
+  box-shadow:var(--shadow-md); opacity:0; pointer-events:none; transition:opacity .2s ease, transform .2s ease;
+  z-index:100;
+}
+.toast.show{opacity:1; transform:translateX(-50%) translateY(-4px);}
+
+.modal-backdrop{
+  position:fixed; inset:0; background:rgba(27,26,23,0.4); display:flex; align-items:center; justify-content:center;
+  z-index:200; padding:20px;
+}
+.modal{
+  background:var(--surface); border-radius:var(--radius-lg); padding:24px; max-width:420px; width:100%;
+  box-shadow:var(--shadow-md);
+}
+.modal h3{margin-top:0;}
+.modal .actions{display:flex; justify-content:flex-end; gap:8px; margin-top:18px;}
+.loading-screen{display:flex; flex-direction:column; align-items:center; justify-content:center; padding:120px 20px; color:var(--ink-soft); gap:10px;}
+.spinner{
+  width:26px; height:26px; border-radius:50%; border:3px solid var(--border); border-top-color:var(--ml-ring);
+  animation:spin .7s linear infinite;
+}
+@keyframes spin{to{transform:rotate(360deg);}}
+</style>
+</head>
+<body>
+
+<div class="app-shell">
+  <header class="topbar">
+    <div class="brand" id="brandHome" tabindex="0">
+      <span class="mark">PA</span>
+      <span>Panel de Auditoría</span>
+    </div>
+    <div class="crumbs" id="crumbs"></div>
+    <div class="topbar-spacer"></div>
+    <button class="back-btn" id="btnResumen" style="margin-right:4px;">📊 Resumen semanal</button>
+    <div class="user-select">
+      <span class="avatar" id="userAvatar">–</span>
+      <select id="userSelect" aria-label="Usuario activo"></select>
+    </div>
+  </header>
+
+  <main class="main" id="main">
+    <div class="loading-screen"><div class="spinner"></div><span>Cargando publicaciones…</span></div>
+  </main>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+/* ============================================================================
+   CONFIGURACIÓN DE CONEXIÓN
+   ============================================================================
+   Pegá acá la URL de tu Web App de Apps Script (Implementar > Nueva
+   implementación). Si la dejás vacía, la app corre en MODO DEMO con datos
+   de ejemplo en memoria para que puedas revisar el diseño y el flujo antes
+   de conectar Google Sheets.
+   ========================================================================== */
+const API_URL = 'https://script.google.com/a/macros/demasled.com.ar/s/AKfycbxG3FRq5QZjiAhMNwXktTY1ygWTN70OJRv84jrFCf7o5fbMVJHyEQq-bnuTiJjK-z8k0A/exec'; // ej: 'https://script.google.com/macros/s/XXXXX/exec'
+
+/* ============================================================================
+   ESTADO GLOBAL
+   ========================================================================== */
+const state = {
+  config: { campos: [], listas: {} },
+  data: { mercadolibre: [], web: [] },
+  view: 'home',        // home | list | detail
+  canal: 'ML',          // ML | Web
+  filters: { estado: 'pendientes', categoria: '', responsable: '', q: '', fecha: '' },
+  currentIndex: 0,
+  currentUser: '',
+  pendingSaves: 0
+};
+
+const ESTADOS_BASE = ['Pendiente', 'En revisión', 'Requiere cambios', 'Optimizada'];
+const ESTADO_CLASS = {
+  'Pendiente': 'pendiente', 'En revisión': 'revision',
+  'Requiere cambios': 'cambios', 'Optimizada': 'optimizada'
+};
+
+/* ============================================================================
+   DATOS DE DEMOSTRACIÓN (se usan solo si API_URL está vacío)
+   ========================================================================== */
+function buildDemoData(){
+  const campos = [
+    {seccion:'Título', clave:'titulo_texto', etiqueta:'Título (texto real)', tipoControl:'text', opciones:[], canal:'Ambos', orden:0},
+    {seccion:'Título', clave:'titulo_estado', etiqueta:'Título', tipoControl:'select', opciones:['OK','Pendiente','Incorrecto'], canal:'Ambos', orden:1},
+    {seccion:'Título', clave:'titulo_obs', etiqueta:'Observación', tipoControl:'text', opciones:[], canal:'Ambos', orden:2},
+    {seccion:'Imágenes', clave:'img_principal', etiqueta:'Imagen principal', tipoControl:'select', opciones:['OK','Pendiente','Incorrecto'], canal:'Ambos', orden:3},
+    {seccion:'Imágenes', clave:'img_secundaria', etiqueta:'Imagen secundaria', tipoControl:'select', opciones:['OK','Pendiente','Incorrecto'], canal:'Ambos', orden:4},
+    {seccion:'Imágenes', clave:'img_aplicacion', etiqueta:'Imagen de aplicación', tipoControl:'select', opciones:['OK','Pendiente','Incorrecto'], canal:'Ambos', orden:5},
+    {seccion:'Imágenes', clave:'img_tecnica', etiqueta:'Imagen técnica', tipoControl:'select', opciones:['OK','Pendiente','Incorrecto'], canal:'Ambos', orden:6},
+    {seccion:'Imágenes', clave:'img_medidas', etiqueta:'Imagen de medidas', tipoControl:'select', opciones:['OK','Pendiente','Incorrecto'], canal:'Ambos', orden:7},
+    {seccion:'Imágenes', clave:'img_packaging', etiqueta:'Imagen de packaging', tipoControl:'select', opciones:['OK','Pendiente','Incorrecto'], canal:'Ambos', orden:8},
+    {seccion:'Clips', clave:'clip_tutorial', etiqueta:'Tutorial', tipoControl:'select', opciones:['OK','Pendiente','Incorrecto'], canal:'Ambos', orden:9},
+    {seccion:'Clips', clave:'clip_aplicacion', etiqueta:'Aplicación', tipoControl:'select', opciones:['OK','Pendiente','Incorrecto'], canal:'Ambos', orden:10},
+    {seccion:'Clips', clave:'clip_institucional', etiqueta:'Institucional', tipoControl:'select', opciones:['OK','Pendiente','Incorrecto'], canal:'Ambos', orden:11},
+    {seccion:'Clips', clave:'clip_obs', etiqueta:'Observaciones', tipoControl:'text', opciones:[], canal:'Ambos', orden:12},
+    {seccion:'Características', clave:'caract_principales', etiqueta:'Principales', tipoControl:'select', opciones:['OK','Pendiente','Incorrecto'], canal:'Ambos', orden:13},
+    {seccion:'Características', clave:'caract_secundarias', etiqueta:'Secundarias', tipoControl:'select', opciones:['OK','Pendiente','Incorrecto'], canal:'Ambos', orden:14},
+    {seccion:'Descripción', clave:'desc_producto', etiqueta:'Descripción del producto (fuente para IA)', tipoControl:'text', opciones:[], canal:'Ambos', orden:15},
+    {seccion:'Descripción', clave:'desc_seo', etiqueta:'SEO', tipoControl:'select', opciones:['OK','Pendiente','Incorrecto'], canal:'Ambos', orden:16},
+    {seccion:'Descripción', clave:'desc_geo', etiqueta:'GEO (motores de respuesta IA)', tipoControl:'select', opciones:['OK','Pendiente','Incorrecto'], canal:'Web', orden:16},
+    {seccion:'Descripción', clave:'desc_keywords', etiqueta:'Keywords', tipoControl:'select', opciones:['OK','Pendiente','Incorrecto'], canal:'Ambos', orden:17},
+    {seccion:'Descripción', clave:'desc_beneficios', etiqueta:'Beneficios', tipoControl:'select', opciones:['OK','Pendiente','Incorrecto'], canal:'Ambos', orden:18},
+    {seccion:'Descripción', clave:'desc_especificaciones', etiqueta:'Especificaciones', tipoControl:'select', opciones:['OK','Pendiente','Incorrecto'], canal:'Ambos', orden:19},
+    {seccion:'Descripción', clave:'desc_obs', etiqueta:'Observaciones', tipoControl:'text', opciones:[], canal:'Ambos', orden:20},
+    {seccion:'General', clave:'observaciones_generales', etiqueta:'Observaciones generales', tipoControl:'text', opciones:[], canal:'Ambos', orden:21}
+  ];
+  const listas = {
+    usuarios: ['Nicolás', 'Carla', 'Martín', 'Sofía'],
+    categorias: ['Herramientas', 'Hogar', 'Electrónica', 'Deportes']
+  };
+
+  const productos = [
+    'Taladro percutor 750W profesional', 'Set de destornilladores 32 piezas',
+    'Zapatillas running amortiguación X3', 'Cafetera espresso automática 15 bar',
+    'Auriculares inalámbricos cancelación de ruido', 'Mochila urbana antirrobo 25L',
+    'Lámpara LED escritorio recargable', 'Silla ergonómica oficina malla',
+    'Kit de llaves allen profesional', 'Termo acero inoxidable 1L'
+  ];
+  const descripcionesDemo = [
+    'Taladro percutor de 750W con mandril de 13mm, velocidad variable, función percutor para mampostería y maletín plástico incluido. Color rojo y negro.',
+    'Set de 32 puntas y destornilladores intercambiables, mango ergonómico antideslizante, estuche rígido de transporte.',
+    'Zapatillas running con sistema de amortiguación X3 en la mediasuela, mesh transpirable, suela de goma antideslizante. Disponibles en negro y gris.',
+    'Cafetera espresso automática con 15 bar de presión, vaporizador de leche integrado, depósito de agua de 1.5L, cuerpo en acero inoxidable.',
+    'Auriculares inalámbricos con cancelación activa de ruido, 30hs de batería, resistencia al agua IPX4, estuche de carga incluido, color negro mate.',
+    'Mochila urbana antirrobo de 25L, material impermeable, compartimento acolchado para notebook de hasta 15.6", puerto USB externo, cierres ocultos.',
+    'Lámpara LED de escritorio recargable, 3 niveles de intensidad, brazo flexible, batería de 2000mAh, carga por USB-C, color blanco.',
+    'Silla ergonómica de oficina con respaldo de malla transpirable, apoyabrazos ajustables, soporte lumbar, base de 5 ruedas.',
+    'Kit profesional de llaves allen de 25 piezas, acero al cromo vanadio, estuche organizador plegable.',
+    'Termo de acero inoxidable de 1L, doble pared al vacío, mantiene la temperatura hasta 12hs, tapa hermética con pico dosificador.'
+  ];
+  const titulosDemo = [
+    'TALADRO PERCUTOR 750W OFERTA!!', 'set destornilladores 32 piezas',
+    'Zapatillas running con amortiguación', 'CAFETERA ESPRESSO 15 BAR envío gratis',
+    'auriculares bluetooth cancelación ruido', 'Mochila antirrobo urbana 25l',
+    'lampara led escritorio recargable', 'SILLA ERGONOMICA OFICINA IMPERDIBLE',
+    'kit llaves allen profesional 25pz', 'termo acero inoxidable 1 litro'
+  ];
+  const estadosDemo = ['Pendiente','Pendiente','En revisión','Requiere cambios','Optimizada'];
+
+  function genRows(prefix, canal){
+    const rows = [];
+    for (let i=0;i<10;i++){
+      const row = {
+        _row: i+2,
+        MLA_SKU: prefix + (1000+i),
+        SKU: 'SKU-' + (2000+i),
+        Producto: productos[i],
+        Categoria: listas.categorias[i % listas.categorias.length],
+        Estado: estadosDemo[i % estadosDemo.length],
+        Responsable: listas.usuarios[i % listas.usuarios.length],
+        FechaUltimaRevision: new Date(Date.now() - i*86400000).toISOString(),
+        UltimoUsuario: listas.usuarios[i % listas.usuarios.length],
+        Score: 0
+      };
+      campos.forEach(c => {
+        if (c.canal !== 'Ambos' && c.canal !== canal) return;
+        if (c.tipoControl === 'select'){
+          const opts = ['OK','OK','Pendiente','Incorrecto'];
+          row[c.clave] = opts[(i + c.orden) % opts.length];
+        } else if (c.clave === 'desc_producto'){
+          row[c.clave] = descripcionesDemo[i] || '';
+        } else if (c.clave === 'titulo_texto'){
+          row[c.clave] = titulosDemo[i] || '';
+        } else {
+          row[c.clave] = '';
+        }
+      });
+      // score inicial
+      const selectFields = campos.filter(c => c.tipoControl==='select' && (c.canal==='Ambos'||c.canal===canal));
+      const ok = selectFields.filter(c => row[c.clave]==='OK').length;
+      row.Score = Math.round((ok/selectFields.length)*100);
+      rows.push(row);
+    }
+    return rows;
+  }
+
+  return {
+    config: { campos, listas },
+    mercadolibre: genRows('MLA', 'ML'),
+    web: genRows('WEB', 'Web')
+  };
+}
+
+/* ============================================================================
+   CARGA DE DATOS
+   ========================================================================== */
+async function loadData(){
+  try {
+    if (!API_URL){
+      const demo = buildDemoData();
+      applyData(demo);
+      showToast('Modo demo: configurá API_URL para conectar Google Sheets');
+      return;
+    }
+    const res = await fetch(API_URL + '?action=getAll');
+    const json = await res.json();
+    if (json.error) throw new Error(json.error);
+    applyData(json);
+  } catch (err){
+    document.getElementById('main').innerHTML =
+      '<div class="empty-state"><h3>No se pudo cargar la información</h3><p>' +
+      escapeHtml(err.message) + '</p></div>';
+  }
+}
+
+function applyData(json){
+  state.config = json.config || { campos: [], listas: {} };
+  state.data.mercadolibre = json.mercadolibre || [];
+  state.data.web = json.web || [];
+
+  const usuarios = state.config.listas.usuarios || ['Usuario'];
+  const userSelect = document.getElementById('userSelect');
+  userSelect.innerHTML = usuarios.map(u => `<option value="${escapeHtml(u)}">${escapeHtml(u)}</option>`).join('');
+  state.currentUser = usuarios[0] || 'Usuario';
+  userSelect.value = state.currentUser;
+  updateAvatar();
+  userSelect.addEventListener('change', () => {
+    state.currentUser = userSelect.value;
+    updateAvatar();
+  });
+
+  render();
+}
+
+function updateAvatar(){
+  const initials = (state.currentUser || '?').split(' ').map(w=>w[0]).join('').slice(0,2).toUpperCase();
+  document.getElementById('userAvatar').textContent = initials || '?';
+}
+
+/* ============================================================================
+   HELPERS
+   ========================================================================== */
+function escapeHtml(str){
+  return String(str ?? '').replace(/[&<>"']/g, m => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]));
+}
+function fmtDate(d){
+  if (!d) return '—';
+  const date = new Date(d);
+  if (isNaN(date)) return '—';
+  return date.toLocaleDateString('es-AR', { day:'2-digit', month:'2-digit', year:'numeric' });
+}
+function showToast(msg){
+  const t = document.getElementById('toast');
+  t.textContent = msg;
+  t.classList.add('show');
+  clearTimeout(t._timer);
+  t._timer = setTimeout(()=>t.classList.remove('show'), 2200);
+}
+function getRows(canal){
+  return canal === 'Web' ? state.data.web : state.data.mercadolibre;
+}
+function statCounts(rows){
+  const c = { 'Pendiente':0, 'En revisión':0, 'Requiere cambios':0, 'Optimizada':0 };
+  rows.forEach(r => { if (c[r.Estado] !== undefined) c[r.Estado]++; else c['Pendiente']++; });
+  return c;
+}
+function avgProgress(rows){
+  if (!rows.length) return 0;
+  const sum = rows.reduce((a,r)=>a+(Number(r.Score)||0),0);
+  return Math.round(sum/rows.length);
+}
+
+/* ============================================================================
+   ROUTER / RENDER
+   ========================================================================== */
+function goHome(){ state.view='home'; render(); }
+function goList(canal){ state.canal = canal; state.view='list'; render(); }
+function goDetail(canal, index){ state.canal = canal; state.currentIndex = index; state.view='detail'; render(); }
+
+document.getElementById('brandHome').addEventListener('click', goHome);
+document.getElementById('brandHome').addEventListener('keypress', e => { if (e.key==='Enter') goHome(); });
+document.getElementById('btnResumen').addEventListener('click', showResumenModal);
+
+function render(){
+  const main = document.getElementById('main');
+  const crumbs = document.getElementById('crumbs');
+  if (state.view === 'home'){
+    crumbs.innerHTML = '';
+    main.innerHTML = renderHome();
+    attachHomeEvents();
+  } else if (state.view === 'list'){
+    crumbs.innerHTML = `<span class="sep">/</span><span class="active">${state.canal === 'Web' ? 'Tienda Web' : 'Mercado Libre'}</span>`;
+    main.innerHTML = renderList();
+    attachListEvents();
+  } else if (state.view === 'detail'){
+    crumbs.innerHTML = `<span class="sep">/</span><span>${state.canal === 'Web' ? 'Tienda Web' : 'Mercado Libre'}</span><span class="sep">/</span><span class="active">Ficha</span>`;
+    main.innerHTML = renderDetail();
+    attachDetailEvents();
+  }
+}
+
+/* ---- HOME ---- */
+function renderHome(){
+  const mlRows = getRows('ML');
+  const webRows = getRows('Web');
+  const mlStats = statCounts(mlRows);
+  const webStats = statCounts(webRows);
+  const mlProg = avgProgress(mlRows);
+  const webProg = avgProgress(webRows);
+
+  const card = (canal, label, stats, prog, cls) => `
+    <div class="channel-card ${cls}" data-canal="${canal}" tabindex="0" role="button">
+      <div class="head">
+        <div class="title"><span class="dot ${cls}"></span>${label}</div>
+        <div class="pct">${prog}%</div>
+      </div>
+      <div class="stat-row">
+        <div class="stat"><span class="n">${stats['Pendiente']}</span><span class="l">Pendientes</span></div>
+        <div class="stat"><span class="n">${stats['En revisión']}</span><span class="l">En revisión</span></div>
+        <div class="stat"><span class="n">${stats['Requiere cambios']}</span><span class="l">Requiere cambios</span></div>
+        <div class="stat"><span class="n">${stats['Optimizada']}</span><span class="l">Optimizadas</span></div>
+      </div>
+      <div class="progress-track"><div class="progress-fill ${cls}" style="width:${prog}%"></div></div>
+    </div>`;
+
+  return `
+    <div class="home-header">
+      <h1>Publicaciones</h1>
+      <p>Seleccioná un canal para auditar y optimizar publicaciones.</p>
+    </div>
+    <div class="channel-grid">
+      ${card('ML', 'Optimización Mercado Libre', mlStats, mlProg, 'ml')}
+      ${card('Web', 'Optimización Tienda Web', webStats, webProg, 'web')}
+    </div>`;
+}
+function attachHomeEvents(){
+  document.querySelectorAll('.channel-card').forEach(el => {
+    el.addEventListener('click', () => goList(el.dataset.canal));
+    el.addEventListener('keypress', e => { if (e.key==='Enter') goList(el.dataset.canal); });
+  });
+}
+
+/* ---- LIST ---- */
+function filteredRows(){
+  const rows = getRows(state.canal);
+  const f = state.filters;
+  return rows.filter(r => {
+    if (f.estado === 'pendientes' && r.Estado === 'Optimizada') return false;
+    if (f.estado === 'revision' && r.Estado !== 'En revisión') return false;
+    if (f.estado === 'cambios' && r.Estado !== 'Requiere cambios') return false;
+    if (f.estado === 'optimizadas' && r.Estado !== 'Optimizada') return false;
+    if (f.categoria && r.Categoria !== f.categoria) return false;
+    if (f.responsable && r.Responsable !== f.responsable) return false;
+    if (f.q){
+      const q = f.q.toLowerCase();
+      const hay = [r.MLA_SKU, r.SKU, r.Producto].filter(Boolean).join(' ').toLowerCase();
+      if (!hay.includes(q)) return false;
+    }
+    return true;
+  });
+}
+
+function renderList(){
+  const rows = filteredRows();
+  const categorias = state.config.listas.categorias || [];
+  const usuarios = state.config.listas.usuarios || [];
+  const f = state.filters;
+
+  const tabs = [
+    ['pendientes','Pendientes'], ['revision','En revisión'],
+    ['cambios','Requiere cambios'], ['optimizadas','Optimizadas'], ['todas','Todas']
+  ];
+
+  return `
+    <div class="list-toolbar">
+      <button class="back-btn" id="btnBackHome">← Inicio</button>
+    </div>
+    <div class="filters">
+      <input type="text" id="fSearch" placeholder="Buscar MLA, SKU o producto…" value="${escapeHtml(f.q)}">
+      <select id="fCategoria">
+        <option value="">Categoría (todas)</option>
+        ${categorias.map(c=>`<option ${f.categoria===c?'selected':''}>${escapeHtml(c)}</option>`).join('')}
+      </select>
+      <select id="fResponsable">
+        <option value="">Ejecutivo (todos)</option>
+        ${usuarios.map(u=>`<option ${f.responsable===u?'selected':''}>${escapeHtml(u)}</option>`).join('')}
+      </select>
+      <div class="view-tabs">
+        ${tabs.map(([k,l])=>`<button data-estado="${k}" class="${f.estado===k?'active':''}">${l}</button>`).join('')}
+      </div>
+    </div>
+    ${rows.length ? `<div class="item-list">${rows.map((r,i)=>renderItemRow(r,i)).join('')}</div>` :
+      `<div class="empty-state"><h3>No hay publicaciones con estos filtros</h3><p>Probá cambiar el filtro de estado o la búsqueda.</p></div>`}
+  `;
+}
+
+function renderItemRow(r, i){
+  const estadoCls = ESTADO_CLASS[r.Estado] || 'pendiente';
+  return `
+    <div class="item-row" data-index="${i}">
+      <span class="mla">${escapeHtml(r.MLA_SKU || '')}</span>
+      <span class="mla col-hide-mobile">${escapeHtml(r.SKU || '')}</span>
+      <span class="producto">${escapeHtml(r.Producto || '')}</span>
+      <span class="badge ${estadoCls}">${r.Estado || 'Pendiente'}</span>
+      <span class="meta col-hide-mobile">${fmtDate(r.FechaUltimaRevision)} · ${escapeHtml(r.UltimoUsuario || '—')}</span>
+      <span class="score-pill">${r.Score || 0}%</span>
+    </div>`;
+}
+
+function attachListEvents(){
+  document.getElementById('btnBackHome').addEventListener('click', goHome);
+  document.getElementById('fSearch').addEventListener('input', e => { state.filters.q = e.target.value; refreshListOnly(); });
+  document.getElementById('fCategoria').addEventListener('change', e => { state.filters.categoria = e.target.value; render(); });
+  document.getElementById('fResponsable').addEventListener('change', e => { state.filters.responsable = e.target.value; render(); });
+  document.querySelectorAll('.view-tabs button').forEach(b => {
+    b.addEventListener('click', () => { state.filters.estado = b.dataset.estado; render(); });
+  });
+  document.querySelectorAll('.item-row').forEach(el => {
+    el.addEventListener('click', () => {
+      const rows = filteredRows();
+      goDetail(state.canal, Number(el.dataset.index));
+      state._filteredSnapshot = rows; // para navegación siguiente/anterior
+    });
+  });
+}
+// Debounce liviano solo para el input de búsqueda, para no re-renderizar toda la lista en cada tecla
+let searchDebounce;
+function refreshListOnly(){
+  clearTimeout(searchDebounce);
+  searchDebounce = setTimeout(render, 180);
+}
+
+/* ---- DETAIL ---- */
+function currentFilteredList(){
+  // Usamos siempre los filtros vigentes para que "siguiente/anterior" navegue
+  // dentro del subconjunto que el usuario está revisando.
+  return filteredRows();
+}
+function renderDetail(){
+  const list = currentFilteredList();
+  if (!list.length){
+    return `<div class="empty-state"><h3>No hay publicaciones para mostrar</h3></div>`;
+  }
+  const idx = Math.min(state.currentIndex, list.length - 1);
+  const item = list[idx];
+  const campos = state.config.campos.filter(c => c.canal === 'Ambos' || c.canal === state.canal);
+
+  const secciones = {};
+  campos.forEach(c => { (secciones[c.seccion] = secciones[c.seccion] || []).push(c); });
+
+  const score = Number(item.Score) || 0;
+  const circumference = 2 * Math.PI * 34;
+  const dash = circumference * (score/100);
+
+  return `
+    <div class="detail-header">
+      <div class="id-block">
+        <div class="mla">${escapeHtml(item.MLA_SKU || '')} · SKU ${escapeHtml(item.SKU || '')}</div>
+        <h2>${escapeHtml(item.Producto || '')}</h2>
+        <div class="chips">
+          <span class="chip">${escapeHtml(item.Categoria || 'Sin categoría')}</span>
+          <span class="badge ${ESTADO_CLASS[item.Estado]||'pendiente'}">${item.Estado || 'Pendiente'}</span>
+          <span class="chip">Responsable: ${escapeHtml(item.Responsable || '—')}</span>
+          <span class="chip">Última revisión: ${fmtDate(item.FechaUltimaRevision)}</span>
+        </div>
+      </div>
+      <div style="display:flex; align-items:center; gap:20px;">
+        <div class="score-gauge">
+          <svg width="88" height="88" viewBox="0 0 88 88">
+            <circle cx="44" cy="44" r="34" fill="none" stroke="var(--surface-2)" stroke-width="8"/>
+            <circle id="scoreRing" cx="44" cy="44" r="34" fill="none" stroke="${score>=80?'var(--ok)':score>=50?'var(--warn)':'var(--danger)'}"
+              stroke-width="8" stroke-linecap="round"
+              stroke-dasharray="${dash} ${circumference}"/>
+          </svg>
+          <div class="value" id="scoreValue">${score}%</div>
+          <div class="label">Score</div>
+        </div>
+        <button class="confirm-btn" id="btnConfirm" ${item.Estado==='Optimizada' ? 'disabled' : ''}>
+          ✅ Confirmar optimización
+        </button>
+      </div>
+    </div>
+
+    <div class="checklist-sections">
+      ${Object.keys(secciones).map(sec => renderSectionCard(sec, secciones[sec], item)).join('')}
+    </div>
+
+    <div class="nav-footer">
+      <div class="group">
+        <button class="nav-btn" id="btnPrev" ${idx===0?'disabled':''}>← Anterior</button>
+        <button class="nav-btn" id="btnNext" ${idx===list.length-1?'disabled':''}>Siguiente →</button>
+      </div>
+      <div class="group">
+        <button class="nav-btn" id="btnNextPending">Siguiente pendiente</button>
+        <button class="nav-btn primary" id="btnToList">Volver al listado</button>
+      </div>
+    </div>
+  `;
+}
+
+function renderSectionCard(sec, campos, item){
+  const selectCount = campos.filter(c=>c.tipoControl==='select').length;
+  const okCount = campos.filter(c=>c.tipoControl==='select' && item[c.clave]==='OK').length;
+  return `
+    <div class="section-card">
+      <h3>${escapeHtml(sec)} ${selectCount ? `<span class="count">${okCount}/${selectCount} OK</span>` : ''}</h3>
+      ${campos.map(c => renderField(c, item)).join('')}
+    </div>`;
+}
+
+// Claves de checklist que representan imágenes o clips de video: son las
+// únicas que ofrecen el botón "Generar prompt IA" (Nano Banana 2 / Omni Flash).
+function esCampoAsset(clave){
+  return clave.startsWith('img_') || clave.startsWith('clip_');
+}
+// Claves de texto que representan título/descripción reales: ofrecen el
+// botón "✨ Sugerir" para reescribirlas con IA según reglas de plataforma.
+function esCampoSugerible(clave){
+  return clave === 'titulo_texto' || clave === 'desc_producto';
+}
+
+function renderField(c, item){
+  const value = item[c.clave] ?? '';
+  const mostrarBotonAsset = c.tipoControl === 'select' && esCampoAsset(c.clave);
+  const promptBtn = mostrarBotonAsset ? `
+    <button class="ai-prompt-btn" data-asset-btn="${c.clave}">
+      ${c.clave.startsWith('clip_') ? '🎬' : '🖼️'} Generar prompt IA
+    </button>` : '';
+  const promptBox = mostrarBotonAsset ? `
+    <div class="ai-prompt-box" id="prompt-box-${c.clave}" data-asset-box="${c.clave}"></div>` : '';
+
+  if (c.tipoControl === 'select'){
+    const opts = c.opciones.length ? c.opciones : ['OK','Pendiente','Incorrecto'];
+    return `
+      <div class="field-row" data-clave="${c.clave}">
+        <label>${escapeHtml(c.etiqueta)}</label>
+        <div class="field-content">
+          <div class="field-content-top">
+            <div class="chip-toggle" data-clave="${c.clave}">
+              ${opts.map(o => `<button data-val="${escapeHtml(o)}" class="${value===o?'active':''}">${escapeHtml(o)}</button>`).join('')}
+              <span class="save-dot" data-savedot="${c.clave}"></span>
+            </div>
+            ${promptBtn}
+          </div>
+          ${promptBox}
+        </div>
+      </div>`;
+  }
+
+  const sugerible = esCampoSugerible(c.clave);
+  const suggBtn = sugerible ? `<button class="ai-prompt-btn" data-suggest-btn="${c.clave}">✨ Sugerir</button>` : '';
+  const suggBox = sugerible ? `<div class="ai-prompt-box" id="suggest-box-${c.clave}" data-suggest-box="${c.clave}"></div>` : '';
+  const contador = c.clave === 'titulo_texto'
+    ? `<span class="char-counter" id="char-counter-titulo_texto"></span>` : '';
+
+  return `
+    <div class="field-row" data-clave="${c.clave}">
+      <label>${escapeHtml(c.etiqueta)}</label>
+      <div class="field-content">
+        <div class="field-content-top" style="align-items:flex-start;">
+          <div style="position:relative; flex:1; min-width:220px;">
+            <textarea data-clave="${c.clave}" placeholder="Escribir observación…">${escapeHtml(value)}</textarea>
+            <span class="save-dot" data-savedot="${c.clave}" style="position:absolute; right:8px; top:8px;"></span>
+          </div>
+          ${suggBtn}
+        </div>
+        ${contador}
+        ${suggBox}
+      </div>
+    </div>`;
+}
+
+function attachDetailEvents(){
+  const list = currentFilteredList();
+  const idx = Math.min(state.currentIndex, list.length - 1);
+  const item = list[idx];
+
+  document.getElementById('btnToList').addEventListener('click', () => goList(state.canal));
+  document.getElementById('btnPrev').addEventListener('click', () => { state.currentIndex = idx - 1; render(); });
+  document.getElementById('btnNext').addEventListener('click', () => { state.currentIndex = idx + 1; render(); });
+  document.getElementById('btnNextPending').addEventListener('click', () => {
+    const next = list.findIndex((r,i) => i > idx && r.Estado !== 'Optimizada');
+    const fallback = list.findIndex(r => r.Estado !== 'Optimizada');
+    state.currentIndex = next > -1 ? next : (fallback > -1 ? fallback : idx);
+    render();
+  });
+  document.getElementById('btnConfirm').addEventListener('click', () => confirmOptimization(item));
+
+  document.querySelectorAll('.chip-toggle').forEach(group => {
+    group.addEventListener('click', e => {
+      const btn = e.target.closest('button[data-val]');
+      if (!btn) return;
+      const clave = group.dataset.clave;
+      const valor = btn.dataset.val;
+      group.querySelectorAll('button').forEach(b => b.classList.toggle('active', b===btn));
+      saveField(item, clave, valor);
+    });
+  });
+
+  document.querySelectorAll('textarea[data-clave]').forEach(ta => {
+    let t;
+    ta.addEventListener('input', () => {
+      clearTimeout(t);
+      const dot = document.querySelector(`[data-savedot="${ta.dataset.clave}"]`);
+      if (dot) dot.className = 'save-dot saving';
+      t = setTimeout(() => saveField(item, ta.dataset.clave, ta.value), 500);
+    });
+  });
+
+  document.querySelectorAll('[data-asset-btn]').forEach(btn => {
+    btn.addEventListener('click', () => generateAssetPrompt(item, btn.dataset.assetBtn, btn));
+  });
+
+  document.querySelectorAll('[data-suggest-btn]').forEach(btn => {
+    btn.addEventListener('click', () => suggestText(item, btn.dataset.suggestBtn, btn));
+  });
+
+  const tituloTa = document.querySelector('textarea[data-clave="titulo_texto"]');
+  if (tituloTa){
+    updateCharCounter(tituloTa.value.length);
+    tituloTa.addEventListener('input', () => updateCharCounter(tituloTa.value.length));
+  }
+}
+
+/**
+ * ML: recomendado ≤60 caracteres (obligatorio, límite duro de la plataforma).
+ * Web: recomendado 50-60 caracteres pensando en el snippet de búsqueda.
+ */
+function updateCharCounter(len){
+  const el = document.getElementById('char-counter-titulo_texto');
+  if (!el) return;
+  let cls, texto;
+  if (state.canal === 'Web'){
+    if (len === 0){ cls='warn'; texto=`${len} caracteres — recomendado 50-60`; }
+    else if (len < 50){ cls='warn'; texto=`${len}/60 — un poco corto, ideal 50-60`; }
+    else if (len <= 60){ cls='ok'; texto=`${len}/60 ✔ largo ideal para SEO`; }
+    else { cls='danger'; texto=`${len}/60 — se corta en el snippet de búsqueda`; }
+  } else {
+    if (len === 0){ cls='warn'; texto=`${len}/60 caracteres`; }
+    else if (len <= 60){ cls='ok'; texto=`${len}/60 ✔`; }
+    else { cls='danger'; texto=`${len}/60 — supera el límite de Mercado Libre`; }
+  }
+  el.textContent = texto;
+  el.className = 'char-counter ' + cls;
+}
+
+/* ============================================================================
+   SUGERENCIA DE TÍTULO / DESCRIPCIÓN CON IA
+   ============================================================================
+   Aplica a los campos titulo_texto y desc_producto: la IA propone una
+   versión mejorada según las reglas de la plataforma (ML o Web) y el
+   contexto de marca cargado en ia_config. El usuario elige usarla o
+   descartarla — nunca se pisa el campo sin confirmación.
+   ========================================================================== */
+async function suggestText(item, clave, btn){
+  const tipo = clave === 'titulo_texto' ? 'titulo' : 'descripcion';
+  const textoBase = String(item[clave] || '').trim();
+  const box = document.getElementById('suggest-box-' + clave);
+
+  const originalLabel = btn.innerHTML;
+  btn.disabled = true;
+  btn.innerHTML = '<span class="mini-spinner"></span> Generando…';
+  box.classList.remove('error');
+  box.classList.add('open');
+  box.textContent = 'Generando sugerencia…';
+
+  try {
+    let sugerencia;
+    if (!API_URL){
+      await new Promise(r => setTimeout(r, 650));
+      sugerencia = tipo === 'titulo'
+        ? (state.canal === 'Web'
+            ? `${item.Categoria} | ${item.Producto}`
+            : `${item.Producto} - ${item.Categoria}`).slice(0, 60)
+        : `[DEMO] Descripción optimizada de "${item.Producto}" para ${state.canal === 'Web' ? 'Web/SEO-GEO' : 'Mercado Libre'}, basada en tu texto base. Conectá API_URL y GEMINI_API_KEY para generar contenido real.`;
+    } else {
+      const res = await fetch(API_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+        body: JSON.stringify({
+          action: 'suggestText', canal: state.canal, tipo,
+          textoBase, producto: item.Producto, categoria: item.Categoria
+        })
+      });
+      const json = await res.json();
+      if (json.error) throw new Error(json.error);
+      sugerencia = json.sugerencia;
+    }
+
+    box.innerHTML = `
+      <div>${escapeHtml(sugerencia)}</div>
+      <div class="suggest-actions">
+        <button type="button" class="use-btn">Usar esta sugerencia</button>
+        <button type="button" class="discard-btn">Descartar</button>
+      </div>`;
+    box.querySelector('.use-btn').addEventListener('click', () => {
+      const ta = document.querySelector(`textarea[data-clave="${clave}"]`);
+      ta.value = sugerencia;
+      if (clave === 'titulo_texto') updateCharCounter(sugerencia.length);
+      saveField(item, clave, sugerencia);
+      box.classList.remove('open');
+    });
+    box.querySelector('.discard-btn').addEventListener('click', () => {
+      box.classList.remove('open');
+    });
+  } catch (err){
+    box.classList.add('error');
+    box.textContent = 'Error: ' + err.message;
+  } finally {
+    btn.disabled = false;
+    btn.innerHTML = originalLabel;
+  }
+}
+
+/* ============================================================================
+   GENERADOR DE PROMPTS DE IMÁGENES / VIDEO (Nano Banana 2 / Omni Flash)
+   ============================================================================
+   Requiere que "Descripción del producto (fuente para IA)" (desc_producto)
+   esté cargada: es la fuente de verdad que evita que la IA invente
+   materiales, colores o funciones que el producto no tiene.
+   ========================================================================== */
+async function generateAssetPrompt(item, clave, btn){
+  const descripcionBase = String(item.desc_producto || '').trim();
+  const box = document.getElementById('prompt-box-' + clave);
+
+  if (!descripcionBase){
+    showToast('Completá primero "Descripción del producto" para generar el prompt');
+    const target = document.querySelector('textarea[data-clave="desc_producto"]');
+    if (target){ target.scrollIntoView({behavior:'smooth', block:'center'}); target.focus(); }
+    return;
+  }
+
+  const originalLabel = btn.innerHTML;
+  btn.disabled = true;
+  btn.innerHTML = '<span class="mini-spinner"></span> Generando…';
+  box.classList.remove('error');
+  box.classList.add('open');
+  box.textContent = 'Generando prompt…';
+
+  try {
+    let promptText;
+    if (!API_URL){
+      await new Promise(r => setTimeout(r, 650));
+      promptText = `[DEMO] Prompt de "${clave}" para "${item.Producto}", basado en: "${descripcionBase.slice(0,90)}…". Conectá API_URL y GEMINI_API_KEY para generar el prompt real.`;
+    } else {
+      const res = await fetch(API_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+        body: JSON.stringify({
+          action: 'generatePrompt', canal: state.canal, tipoAsset: clave,
+          producto: item.Producto, categoria: item.Categoria,
+          descripcionBase: descripcionBase
+        })
+      });
+      const json = await res.json();
+      if (json.error) throw new Error(json.error);
+      promptText = json.prompt;
+    }
+
+    box.innerHTML = `${escapeHtml(promptText)}<br><button class="copy-mini" type="button">📋 Copiar prompt</button>`;
+    box.querySelector('.copy-mini').addEventListener('click', () => {
+      navigator.clipboard.writeText(promptText).then(() => showToast('Prompt copiado ✔'));
+    });
+  } catch (err){
+    box.classList.add('error');
+    box.textContent = 'Error: ' + err.message;
+  } finally {
+    btn.disabled = false;
+    btn.innerHTML = originalLabel;
+  }
+}
+
+/* ============================================================================
+   GUARDADO (autoguardado inmediato, sin botón "Guardar")
+   ========================================================================== */
+async function saveField(item, clave, valor){
+  const dot = document.querySelector(`[data-savedot="${clave}"]`);
+  if (dot) dot.className = 'save-dot saving';
+
+  // Actualización optimista en memoria
+  item[clave] = valor;
+  recalcClientScore(item);
+  updateScoreUI(item);
+
+  // Si una publicación optimizada deja de tener todo OK, preguntamos
+  if (item.Estado === 'Optimizada' && Number(item.Score) < 100){
+    const cambiar = await confirmDialog(
+      'Esta publicación dejará de estar optimizada. ¿Desea cambiar su estado a "Requiere cambios"?'
+    );
+    if (cambiar) await setStatus(item, 'Requiere cambios');
+  }
+
+  try {
+    if (API_URL){
+      const res = await fetch(API_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+        body: JSON.stringify({
+          action: 'updateField', canal: state.canal, row: item._row,
+          mlaSku: item.MLA_SKU, campo: clave, valor: valor, usuario: state.currentUser
+        })
+      });
+      const json = await res.json();
+      if (json.error) throw new Error(json.error);
+      item.Score = json.score;
+      updateScoreUI(item);
+    }
+    if (dot) dot.className = 'save-dot saved';
+  } catch (err){
+    if (dot) dot.className = 'save-dot';
+    showToast('No se pudo guardar: ' + err.message);
+  }
+}
+
+function recalcClientScore(item){
+  const campos = state.config.campos.filter(c => c.tipoControl==='select' && (c.canal==='Ambos'||c.canal===state.canal));
+  if (!campos.length){ item.Score = 0; return; }
+  const ok = campos.filter(c => item[c.clave]==='OK').length;
+  item.Score = Math.round((ok/campos.length)*100);
+}
+
+function updateScoreUI(item){
+  const score = Number(item.Score)||0;
+  const valueEl = document.getElementById('scoreValue');
+  const ring = document.getElementById('scoreRing');
+  if (valueEl) valueEl.textContent = score + '%';
+  if (ring){
+    const circumference = 2*Math.PI*34;
+    ring.setAttribute('stroke-dasharray', `${circumference*(score/100)} ${circumference}`);
+    ring.setAttribute('stroke', score>=80?'var(--ok)':score>=50?'var(--warn)':'var(--danger)');
+  }
+}
+
+async function confirmOptimization(item){
+  if (!String(item.desc_producto || '').trim()){
+    showToast('Completá "Descripción (texto real / fuente para IA)" antes de confirmar');
+    const target = document.querySelector('textarea[data-clave="desc_producto"]');
+    if (target){ target.scrollIntoView({behavior:'smooth', block:'center'}); target.focus(); }
+    return;
+  }
+  await setStatus(item, 'Optimizada', true);
+}
+
+async function setStatus(item, estado, esConfirmacion){
+  const estadoAnterior = item.Estado;
+  item.Estado = estado;
+  item.FechaUltimaRevision = new Date().toISOString();
+  item.UltimoUsuario = state.currentUser;
+  render();
+  showToast(esConfirmacion ? 'Publicación optimizada ✔' : `Estado actualizado a "${estado}"`);
+
+  try {
+    if (API_URL){
+      const res = await fetch(API_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+        body: JSON.stringify({
+          action: esConfirmacion ? 'confirmOptimization' : 'setStatus',
+          canal: state.canal, row: item._row, mlaSku: item.MLA_SKU,
+          estado: estado, usuario: state.currentUser
+        })
+      });
+      const json = await res.json();
+      if (json.error) throw new Error(json.error);
+    }
+  } catch (err){
+    item.Estado = estadoAnterior;
+    showToast('No se pudo actualizar el estado: ' + err.message);
+    render();
+  }
+}
+
+/* ============================================================================
+   RESUMEN SEMANAL (informe de actividad por usuario, desde el Historial)
+   ========================================================================== */
+async function showResumenModal(){
+  const backdrop = document.createElement('div');
+  backdrop.className = 'modal-backdrop';
+  backdrop.innerHTML = `
+    <div class="modal wide">
+      <h3>📊 Resumen semanal</h3>
+      <div id="resumenBody"><div class="loading-screen" style="padding:40px 0;"><div class="spinner"></div><span>Cargando actividad…</span></div></div>
+      <div class="actions"><button class="nav-btn primary" id="btnCerrarResumen">Cerrar</button></div>
+    </div>`;
+  document.body.appendChild(backdrop);
+  backdrop.querySelector('#btnCerrarResumen').addEventListener('click', () => backdrop.remove());
+  backdrop.addEventListener('click', e => { if (e.target === backdrop) backdrop.remove(); });
+
+  try {
+    const resumen = API_URL
+      ? await (async () => {
+          const res = await fetch(API_URL + '?action=getResumen&dias=7');
+          const json = await res.json();
+          if (json.error) throw new Error(json.error);
+          return json;
+        })()
+      : buildDemoResumen();
+
+    renderResumen(resumen, backdrop.querySelector('#resumenBody'));
+  } catch (err){
+    backdrop.querySelector('#resumenBody').innerHTML =
+      `<div class="empty-state"><h3>No se pudo cargar el resumen</h3><p>${escapeHtml(err.message)}</p></div>`;
+  }
+}
+
+function renderResumen(resumen, container){
+  if (!resumen.porUsuario.length){
+    container.innerHTML = `
+      <p class="resumen-range">Del ${resumen.desde} al ${resumen.hasta}</p>
+      <div class="empty-state"><h3>Sin actividad registrada</h3><p>Todavía no hay ediciones en el Historial en este rango.</p></div>`;
+    return;
+  }
+  container.innerHTML = `
+    <p class="resumen-range">Del ${resumen.desde} al ${resumen.hasta} · últimos 7 días</p>
+    <table class="resumen-table">
+      <thead>
+        <tr>
+          <th>Usuario</th>
+          <th style="text-align:right">Optimizadas ML</th>
+          <th style="text-align:right">Optimizadas Web</th>
+          <th style="text-align:right">Total optimizadas</th>
+          <th style="text-align:right">Ediciones totales</th>
+        </tr>
+      </thead>
+      <tbody>
+        ${resumen.porUsuario.map(u => `
+          <tr>
+            <td>${escapeHtml(u.usuario)}</td>
+            <td class="num">${u.optimizadasML}</td>
+            <td class="num">${u.optimizadasWeb}</td>
+            <td class="num" style="font-weight:700">${u.totalOptimizadas}</td>
+            <td class="num">${u.ediciones}</td>
+          </tr>`).join('')}
+      </tbody>
+    </table>
+    <div class="resumen-total">
+      <span>Total del equipo</span>
+      <span>${resumen.totalOptimizadas} optimizadas · ${resumen.totalEdiciones} ediciones</span>
+    </div>`;
+}
+
+// Datos de ejemplo para el modo demo (sin API_URL no hay Historial real)
+function buildDemoResumen(){
+  const hoy = new Date();
+  const hace7 = new Date(hoy.getTime() - 7*86400000);
+  const fmt = d => d.toLocaleDateString('es-AR', {day:'2-digit', month:'2-digit', year:'numeric'});
+  const porUsuario = [
+    { usuario:'Carla', optimizadasML:4, optimizadasWeb:2, totalOptimizadas:6, ediciones:31 },
+    { usuario:'Nicolás', optimizadasML:3, optimizadasWeb:3, totalOptimizadas:6, ediciones:28 },
+    { usuario:'Martín', optimizadasML:2, optimizadasWeb:1, totalOptimizadas:3, ediciones:15 },
+    { usuario:'Sofía', optimizadasML:1, optimizadasWeb:0, totalOptimizadas:1, ediciones:9 }
+  ];
+  return {
+    desde: fmt(hace7), hasta: fmt(hoy), porUsuario,
+    totalOptimizadas: porUsuario.reduce((a,u)=>a+u.totalOptimizadas,0),
+    totalEdiciones: porUsuario.reduce((a,u)=>a+u.ediciones,0)
+  };
+}
+
+/* ============================================================================
+   MODAL DE CONFIRMACIÓN (usado para el cambio de estado post-edición)
+   ========================================================================== */
+function confirmDialog(message){
+  return new Promise(resolve => {
+    const backdrop = document.createElement('div');
+    backdrop.className = 'modal-backdrop';
+    backdrop.innerHTML = `
+      <div class="modal">
+        <h3>Confirmar cambio de estado</h3>
+        <p>${escapeHtml(message)}</p>
+        <div class="actions">
+          <button class="nav-btn" id="mdNo">No, dejar como está</button>
+          <button class="nav-btn primary" id="mdYes">Sí, cambiar estado</button>
+        </div>
+      </div>`;
+    document.body.appendChild(backdrop);
+    backdrop.querySelector('#mdYes').addEventListener('click', () => { backdrop.remove(); resolve(true); });
+    backdrop.querySelector('#mdNo').addEventListener('click', () => { backdrop.remove(); resolve(false); });
+  });
+}
+
+/* ============================================================================
+   INIT
+   ========================================================================== */
+loadData();
+</script>
+</body>
+</html>
