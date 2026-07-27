@@ -177,13 +177,14 @@ button{font-family:inherit;}
 
 .item-list{display:flex; flex-direction:column; gap:8px;}
 .item-row{
-  display:grid; grid-template-columns:110px 100px 1fr 130px 110px 90px 70px; align-items:center; gap:14px;
+  display:grid; grid-template-columns:14px 110px 100px 1fr 130px 110px 90px 70px; align-items:center; gap:14px;
   background:var(--surface); border:1px solid var(--border); border-radius:var(--radius-md);
   padding:12px 16px; cursor:pointer; transition:border-color .12s ease, background .12s ease;
 }
+.prioridad-dot{width:11px; height:11px; border-radius:50%; display:inline-block; flex-shrink:0;}
 .item-row:hover{border-color:var(--ink-faint); background:var(--surface-2);}
 @media (max-width:900px){
-  .item-row{grid-template-columns:1fr; gap:6px;}
+  .item-row{grid-template-columns:14px 1fr; gap:6px;}
   .item-row .col-hide-mobile{display:none;}
 }
 .mono{font-family:var(--font-mono);}
@@ -259,9 +260,12 @@ button{font-family:inherit;}
   border:1px solid var(--border); background:var(--surface); padding:6px 12px; border-radius:8px;
   font-size:12.5px; font-weight:600; cursor:pointer; color:var(--ink-soft); transition:all .12s ease;
 }
+.chip-toggle button.active{background:var(--surface-2); color:var(--ink); border-color:var(--ink-faint);}
 .chip-toggle button[data-val="OK"].active{background:var(--ok-soft); color:var(--ok); border-color:var(--ok);}
 .chip-toggle button[data-val="Pendiente"].active{background:var(--surface-2); color:var(--ink); border-color:var(--ink-faint);}
 .chip-toggle button[data-val="Incorrecto"].active{background:var(--danger-soft); color:var(--danger); border-color:var(--danger);}
+.chip-toggle button[data-val="Completa"].active{background:var(--ok-soft); color:var(--ok); border-color:var(--ok);}
+.chip-toggle button[data-val="Incompleta"].active{background:var(--danger-soft); color:var(--danger); border-color:var(--danger);}
 
 .field-row textarea, .field-row input[type="text"]{
   width:100%; border:1px solid var(--border); border-radius:8px; padding:8px 10px;
@@ -412,7 +416,7 @@ const state = {
   data: { mercadolibre: [], web: [] },
   view: 'home',        // home | list | detail
   canal: 'ML',          // ML | Web
-  filters: { estado: 'pendientes', categoria: '', responsable: '', q: '', fecha: '' },
+  filters: { estado: 'pendientes', categoria: '', responsable: '', q: '', fecha: '', prioridad: '' },
   currentIndex: 0,
   currentUser: '',
   pendingSaves: 0
@@ -705,13 +709,14 @@ function attachHomeEvents(){
 function filteredRows(){
   const rows = getRows(state.canal);
   const f = state.filters;
-  return rows.filter(r => {
+  const filtered = rows.filter(r => {
     if (f.estado === 'pendientes' && r.Estado === 'Optimizada') return false;
     if (f.estado === 'revision' && r.Estado !== 'En revisión') return false;
     if (f.estado === 'cambios' && r.Estado !== 'Requiere cambios') return false;
     if (f.estado === 'optimizadas' && r.Estado !== 'Optimizada') return false;
     if (f.categoria && r.Categoria !== f.categoria) return false;
     if (f.responsable && r.Responsable !== f.responsable) return false;
+    if (f.prioridad !== '' && Number(r._prioridad || 0) !== Number(f.prioridad)) return false;
     if (f.q){
       const q = f.q.toLowerCase();
       const hay = [r.MLA_SKU, r.SKU, r.Producto].filter(Boolean).join(' ').toLowerCase();
@@ -719,6 +724,15 @@ function filteredRows(){
     }
     return true;
   });
+  // Verde (1) primero, sin pintar (0) al final — mayor urgencia de trabajo arriba.
+  if (f.ordenarPorPrioridad){
+    filtered.sort((a, b) => {
+      const pa = Number(a._prioridad || 0) || 99;
+      const pb = Number(b._prioridad || 0) || 99;
+      return pa - pb;
+    });
+  }
+  return filtered;
 }
 
 function renderList(){
@@ -746,6 +760,18 @@ function renderList(){
         <option value="">Ejecutivo (todos)</option>
         ${usuarios.map(u=>`<option ${f.responsable===u?'selected':''}>${escapeHtml(u)}</option>`).join('')}
       </select>
+      <select id="fPrioridad">
+        <option value="">Prioridad (todas)</option>
+        <option value="1" ${f.prioridad==='1'?'selected':''}>🟢 Verde (#1)</option>
+        <option value="2" ${f.prioridad==='2'?'selected':''}>🟡 Amarillo (#2)</option>
+        <option value="3" ${f.prioridad==='3'?'selected':''}>🟠 Naranja (#3)</option>
+        <option value="4" ${f.prioridad==='4'?'selected':''}>🔴 Rojo (#4)</option>
+        <option value="0" ${f.prioridad==='0'?'selected':''}>⚪ Sin pintar</option>
+      </select>
+      <label style="display:flex; align-items:center; gap:6px; font-size:13px; color:var(--ink-soft); cursor:pointer;">
+        <input type="checkbox" id="fOrdenPrioridad" ${f.ordenarPorPrioridad?'checked':''}>
+        Ordenar por prioridad
+      </label>
       <div class="view-tabs">
         ${tabs.map(([k,l])=>`<button data-estado="${k}" class="${f.estado===k?'active':''}">${l}</button>`).join('')}
       </div>
@@ -755,10 +781,16 @@ function renderList(){
   `;
 }
 
+const PRIORIDAD_COLOR_FALLBACK = { 1:'#22c55e', 2:'#eab308', 3:'#f97316', 4:'#ef4444', 0:'#d1d5db' };
+
 function renderItemRow(r, i){
   const estadoCls = ESTADO_CLASS[r.Estado] || 'pendiente';
+  const nivel = Number(r._prioridad || 0);
+  const colorPrioridad = r._prioridadColor && nivel > 0 ? r._prioridadColor : PRIORIDAD_COLOR_FALLBACK[nivel];
+  const tituloPrioridad = r._prioridadLabel ? `Prioridad: ${r._prioridadLabel} (#${nivel})` : 'Sin prioridad asignada';
   return `
     <div class="item-row" data-index="${i}">
+      <span class="prioridad-dot" style="background:${colorPrioridad}" title="${escapeHtml(tituloPrioridad)}"></span>
       <span class="mla">${escapeHtml(r.MLA_SKU || '')}</span>
       <span class="mla col-hide-mobile">${escapeHtml(r.SKU || '')}</span>
       <span class="producto">${escapeHtml(r.Producto || '')}</span>
@@ -773,6 +805,8 @@ function attachListEvents(){
   document.getElementById('fSearch').addEventListener('input', e => { state.filters.q = e.target.value; refreshListOnly(); });
   document.getElementById('fCategoria').addEventListener('change', e => { state.filters.categoria = e.target.value; render(); });
   document.getElementById('fResponsable').addEventListener('change', e => { state.filters.responsable = e.target.value; render(); });
+  document.getElementById('fPrioridad').addEventListener('change', e => { state.filters.prioridad = e.target.value; render(); });
+  document.getElementById('fOrdenPrioridad').addEventListener('change', e => { state.filters.ordenarPorPrioridad = e.target.checked; render(); });
   document.querySelectorAll('.view-tabs button').forEach(b => {
     b.addEventListener('click', () => { state.filters.estado = b.dataset.estado; render(); });
   });
@@ -812,6 +846,11 @@ function renderDetail(){
   const score = Number(item.Score) || 0;
   const circumference = 2 * Math.PI * 34;
   const dash = circumference * (score/100);
+  const nivelPrioridad = Number(item._prioridad || 0);
+  const colorPrioridadDetalle = item._prioridadColor && nivelPrioridad > 0 ? item._prioridadColor : PRIORIDAD_COLOR_FALLBACK[nivelPrioridad];
+  const chipPrioridad = nivelPrioridad > 0
+    ? `<span class="chip" style="display:inline-flex; align-items:center; gap:6px;"><span class="prioridad-dot" style="background:${colorPrioridadDetalle}"></span>Prioridad: ${escapeHtml(item._prioridadLabel)} (#${nivelPrioridad})</span>`
+    : `<span class="chip" style="display:inline-flex; align-items:center; gap:6px; opacity:.6;"><span class="prioridad-dot" style="background:${PRIORIDAD_COLOR_FALLBACK[0]}"></span>Sin prioridad</span>`;
 
   return `
     <div class="detail-header">
@@ -819,6 +858,7 @@ function renderDetail(){
         <div class="mla">${escapeHtml(item.MLA_SKU || '')} · SKU ${escapeHtml(item.SKU || '')}</div>
         <h2>${escapeHtml(item.Producto || '')}</h2>
         <div class="chips">
+          ${chipPrioridad}
           <span class="chip">${escapeHtml(item.Categoria || 'Sin categoría')}</span>
           <span class="badge ${ESTADO_CLASS[item.Estado]||'pendiente'}">${item.Estado || 'Pendiente'}</span>
           <span class="chip">Responsable: ${escapeHtml(item.Responsable || '—')}</span>
