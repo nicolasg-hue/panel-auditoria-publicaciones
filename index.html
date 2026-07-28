@@ -372,6 +372,7 @@ button{font-family:inherit;}
 }
 @keyframes spin{to{transform:rotate(360deg);}}
 </style>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 </head>
 <body>
 
@@ -586,13 +587,21 @@ function applyData(json){
   const usuarios = state.config.listas.usuarios || ['Usuario'];
   const userSelect = document.getElementById('userSelect');
   userSelect.innerHTML = usuarios.map(u => `<option value="${escapeHtml(u)}">${escapeHtml(u)}</option>`).join('');
-  state.currentUser = usuarios[0] || 'Usuario';
+  // Si ya había un usuario activo elegido (ej. al refrescar tras una
+  // asignación masiva) y sigue existiendo en la lista, lo mantenemos en
+  // vez de resetear siempre al primero de la lista.
+  state.currentUser = (state.currentUser && usuarios.includes(state.currentUser))
+    ? state.currentUser
+    : (usuarios[0] || 'Usuario');
   userSelect.value = state.currentUser;
   updateAvatar();
-  userSelect.addEventListener('change', () => {
-    state.currentUser = userSelect.value;
-    updateAvatar();
-  });
+  if (!userSelect._listenerAttached){
+    userSelect.addEventListener('change', () => {
+      state.currentUser = userSelect.value;
+      updateAvatar();
+    });
+    userSelect._listenerAttached = true;
+  }
 
   render();
 }
@@ -749,6 +758,8 @@ function renderList(){
   return `
     <div class="list-toolbar">
       <button class="back-btn" id="btnBackHome">← Inicio</button>
+      <button class="back-btn" id="btnAsignacionMasiva">📥 Asignación masiva de ejecutivo</button>
+      <input type="file" id="inputAsignacionMasiva" accept=".xlsx,.xls,.csv" style="display:none;">
     </div>
     <div class="filters">
       <input type="text" id="fSearch" placeholder="Buscar MLA, SKU o producto…" value="${escapeHtml(f.q)}">
@@ -802,6 +813,10 @@ function renderItemRow(r, i){
 
 function attachListEvents(){
   document.getElementById('btnBackHome').addEventListener('click', goHome);
+  document.getElementById('btnAsignacionMasiva').addEventListener('click', () => {
+    document.getElementById('inputAsignacionMasiva').click();
+  });
+  document.getElementById('inputAsignacionMasiva').addEventListener('change', handleAsignacionMasivaFile);
   document.getElementById('fSearch').addEventListener('input', e => { state.filters.q = e.target.value; refreshListOnly(); });
   document.getElementById('fCategoria').addEventListener('change', e => { state.filters.categoria = e.target.value; render(); });
   document.getElementById('fResponsable').addEventListener('change', e => { state.filters.responsable = e.target.value; render(); });
@@ -861,7 +876,13 @@ function renderDetail(){
           ${chipPrioridad}
           <span class="chip">${escapeHtml(item.Categoria || 'Sin categoría')}</span>
           <span class="badge ${ESTADO_CLASS[item.Estado]||'pendiente'}">${item.Estado || 'Pendiente'}</span>
-          <span class="chip">Responsable: ${escapeHtml(item.Responsable || '—')}</span>
+          <span class="chip" style="padding:0; display:inline-flex; align-items:center; gap:6px; padding-left:12px;">
+            Ejecutivo:
+            <select id="fichaResponsable" style="border:none; background:transparent; font:inherit; color:inherit; cursor:pointer; padding:6px 8px 6px 2px;">
+              <option value="">Sin asignar</option>
+              ${(state.config.listas.usuarios||[]).map(u => `<option value="${escapeHtml(u)}" ${item.Responsable===u?'selected':''}>${escapeHtml(u)}</option>`).join('')}
+            </select>
+          </span>
           <span class="chip">Última revisión: ${fmtDate(item.FechaUltimaRevision)}</span>
         </div>
       </div>
@@ -986,14 +1007,21 @@ function attachDetailEvents(){
     render();
   });
   document.getElementById('btnConfirm').addEventListener('click', () => confirmOptimization(item));
+  document.getElementById('fichaResponsable').addEventListener('change', e => {
+    item.Responsable = e.target.value;
+    saveField(item, 'Responsable', e.target.value);
+  });
 
   document.querySelectorAll('.chip-toggle').forEach(group => {
     group.addEventListener('click', e => {
       const btn = e.target.closest('button[data-val]');
       if (!btn) return;
       const clave = group.dataset.clave;
-      const valor = btn.dataset.val;
-      group.querySelectorAll('button').forEach(b => b.classList.toggle('active', b===btn));
+      const yaEstabaActivo = btn.classList.contains('active');
+      // Re-clickear el mismo botón ya activo lo "desconfirma" (vuelve a
+      // estado sin definir), en vez de quedar pegado para siempre.
+      const valor = yaEstabaActivo ? '' : btn.dataset.val;
+      group.querySelectorAll('button').forEach(b => b.classList.toggle('active', !yaEstabaActivo && b===btn));
       saveField(item, clave, valor);
     });
   });
@@ -1106,6 +1134,76 @@ async function suggestText(item, clave, btn){
     btn.disabled = false;
     btn.innerHTML = originalLabel;
   }
+}
+
+/* ============================================================================
+   ASIGNACIÓN MASIVA DE EJECUTIVO (Excel de 2 columnas: MLA | Ejecutivo)
+   ========================================================================== */
+const LOTE_ASIGNACION_MASIVA = 80; // pares por request, para no exceder el largo de URL en JSONP
+
+async function handleAsignacionMasivaFile(e){
+  const file = e.target.files[0];
+  e.target.value = ''; // permite volver a elegir el mismo archivo después
+  if (!file) return;
+
+  if (typeof XLSX === 'undefined'){
+    showToast('No se pudo cargar el lector de Excel (revisá tu conexión)');
+    return;
+  }
+
+  showToast('Leyendo archivo…');
+  const buffer = await file.arrayBuffer();
+  const wb = XLSX.read(buffer, { type: 'array' });
+  const hoja = wb.Sheets[wb.SheetNames[0]];
+  const filas = XLSX.utils.sheet_to_json(hoja, { header: 1, defval: '' });
+
+  // Se asume: fila 1 = encabezado (se descarta), columna A = MLA, columna B = Ejecutivo.
+  const pares = filas.slice(1)
+    .map(f => ({ mlaSku: String(f[0] || '').trim(), ejecutivo: String(f[1] || '').trim() }))
+    .filter(p => p.mlaSku && p.ejecutivo);
+
+  if (pares.length === 0){
+    showToast('El archivo no tiene filas válidas (esperado: columna A = MLA, columna B = Ejecutivo)');
+    return;
+  }
+
+  if (!API_URL){
+    showToast(`Modo demo: se simularía la asignación de ${pares.length} publicaciones`);
+    return;
+  }
+
+  const lotes = [];
+  for (let i = 0; i < pares.length; i += LOTE_ASIGNACION_MASIVA){
+    lotes.push(pares.slice(i, i + LOTE_ASIGNACION_MASIVA));
+  }
+
+  let totalActualizados = 0;
+  const noEncontrados = [];
+  showToast(`Asignando ${pares.length} publicaciones en ${lotes.length} tanda(s)…`);
+
+  for (let i = 0; i < lotes.length; i++){
+    try {
+      const json = await jsonpRequest({
+        action: 'bulkAssignResponsable', canal: state.canal,
+        pares: JSON.stringify(lotes[i]), usuario: state.currentUser
+      });
+      if (json.error) throw new Error(json.error);
+      totalActualizados += json.actualizados || 0;
+      if (json.noEncontrados) noEncontrados.push(...json.noEncontrados);
+    } catch (err){
+      showToast(`Error en tanda ${i+1}/${lotes.length}: ${err.message}`);
+    }
+  }
+
+  showToast(
+    `Listo: ${totalActualizados} asignados` +
+    (noEncontrados.length ? `, ${noEncontrados.length} MLA no encontrados` : '')
+  );
+  if (noEncontrados.length){
+    console.warn('MLA no encontrados en la asignación masiva:', noEncontrados);
+  }
+
+  await loadData(); // refresca todo con los datos reales ya actualizados
 }
 
 /* ============================================================================
