@@ -340,6 +340,12 @@ button{font-family:inherit;}
 .pubnueva-contador{font-size:13px; font-weight:600;}
 .pubnueva-contador.completo{color:var(--ok);}
 .pubnueva-contador.incompleto{color:var(--warn);}
+.pubnueva-sugerencia{
+  display:flex; justify-content:space-between; align-items:center; gap:14px; flex-wrap:wrap;
+  background:#f5f3ff; border:1px solid #ddd6fe; border-radius:var(--radius-md);
+  padding:12px 16px; margin:-8px 0 18px; font-size:13px;
+}
+.pubnueva-sugerencia code{background:#fff; padding:1px 6px; border-radius:4px; font-size:12px;}
 
 .obs-general textarea{min-height:90px;}
 
@@ -431,7 +437,9 @@ const state = {
   currentUser: '',
   pendingSaves: 0,
   plantillas: null,     // se carga bajo demanda: { categorias, camposPorCategoria }
-  pubNueva: { categoria: '', codigoTemp: '', campos: {} }
+  pubNueva: { categoria: '', codigoTemp: '', campos: {} },
+  pubNuevaCodigoTentativo: '',
+  pubNuevaSugerencia: null   // { categoria, prefijo, coincidencias, buscado }
 };
 
 const ESTADOS_BASE = ['Pendiente', 'En revisión', 'Requiere cambios', 'Optimizada'];
@@ -906,7 +914,30 @@ function renderPublicacionesNuevas(){
   `;
 
   if (!catSeleccionada){
+    const sug = state.pubNuevaSugerencia;
     html += `
+      <div class="field-row">
+        <label>Código de producto (opcional)</label>
+        <div>
+          <input type="text" id="inputCodigoMadre" value="${escapeHtml(state.pubNuevaCodigoTentativo || '')}"
+                 placeholder="Ej: DOMO-22-B2 — si ya publicaste algo parecido, te sugerimos la categoría"
+                 style="padding:8px 10px; border:1px solid var(--border); border-radius:8px; font:inherit; width:100%; max-width:340px;">
+          <div style="font-size:11.5px; color:var(--ink-soft); margin-top:4px;">
+            Buscamos publicaciones con el mismo prefijo (todo antes del último guion) para sugerirte la categoría — nunca te la impone.
+          </div>
+        </div>
+      </div>
+      ${sug && sug.categoria ? `
+        <div class="pubnueva-sugerencia">
+          <div>
+            💡 Encontramos <strong>${sug.coincidencias.length}</strong> publicación(es) con el prefijo
+            <code>${escapeHtml(sug.prefijo)}</code> en <strong>${escapeHtml(sug.categoria)}</strong>
+            ${sug.coincidencias[0] ? ` (ej: ${escapeHtml(sug.coincidencias[0].sku)}, ${escapeHtml(sug.coincidencias[0].origen)})` : ''}.
+          </div>
+          <button class="nav-btn primary" id="btnUsarSugerenciaCategoria">Usar "${escapeHtml(sug.categoria)}"</button>
+        </div>` : ''}
+      ${sug && sug.categoria === null && sug.buscado ? `
+        <div style="font-size:12.5px; color:var(--ink-soft); margin:-8px 0 16px;">Sin coincidencias previas con ese código — elegí la categoría manualmente.</div>` : ''}
       <div class="field-row">
         <label>Categoría</label>
         <select id="selectorCategoria" style="padding:8px 10px; border:1px solid var(--border); border-radius:8px; font:inherit; min-width:260px;">
@@ -1013,24 +1044,31 @@ function attachPublicacionesNuevasEvents(){
   const btnCambiar = document.getElementById('btnCambiarCategoria');
   if (btnCambiar) btnCambiar.addEventListener('click', () => {
     state.pubNueva = { categoria: '', codigoTemp: '', campos: {} };
+    state.pubNuevaCodigoTentativo = '';
+    state.pubNuevaSugerencia = null;
     render();
   });
 
+  const inputCodigoMadre = document.getElementById('inputCodigoMadre');
+  if (inputCodigoMadre){
+    let tCodigo;
+    inputCodigoMadre.addEventListener('input', e => {
+      state.pubNuevaCodigoTentativo = e.target.value;
+      clearTimeout(tCodigo);
+      tCodigo = setTimeout(buscarSugerenciaCategoria, 500);
+    });
+  }
+
+  const btnUsarSugerencia = document.getElementById('btnUsarSugerenciaCategoria');
+  if (btnUsarSugerencia){
+    btnUsarSugerencia.addEventListener('click', () => {
+      seleccionarCategoriaPubNueva(state.pubNuevaSugerencia.categoria);
+    });
+  }
+
   const selectorCategoria = document.getElementById('selectorCategoria');
   if (selectorCategoria){
-    selectorCategoria.addEventListener('change', e => {
-      const categoria = e.target.value;
-      state.pubNueva = { categoria, codigoTemp: '', campos: {} };
-      // Los campos "fijo" (ej. Cargo por vender) vienen predeterminados por
-      // ML según la cuenta/categoría — se auto-completan, no los llena el usuario.
-      const camposCat = (state.plantillas.camposPorCategoria[categoria] || []);
-      camposCat.forEach(c => {
-        if (c.tipoControl === 'fijo' && c.valorPorDefecto){
-          state.pubNueva.campos[c.clave] = c.valorPorDefecto;
-        }
-      });
-      render();
-    });
+    selectorCategoria.addEventListener('change', e => seleccionarCategoriaPubNueva(e.target.value));
   }
 
   document.querySelectorAll('[data-campo-pn]').forEach(el => {
@@ -1055,6 +1093,51 @@ function restaurarFoco(elOriginal){
   const clave = elOriginal.dataset.campoPn;
   const el = document.querySelector(`[data-campo-pn="${clave}"]`);
   if (el) el.focus();
+}
+
+async function buscarSugerenciaCategoria(){
+  const codigo = state.pubNuevaCodigoTentativo.trim();
+  if (!codigo){ state.pubNuevaSugerencia = null; render(); return; }
+
+  if (!API_URL){
+    // Demo: simulamos una coincidencia si el código contiene un guion.
+    state.pubNuevaSugerencia = codigo.includes('-')
+      ? { categoria: 'Tiras de LED', prefijo: codigo.split('-').slice(0,-1).join('-'),
+          coincidencias: [{ sku: codigo.split('-').slice(0,-1).join('-')+'-a1', origen: 'Mercado Libre (demo)' }], buscado: true }
+      : { categoria: null, buscado: true, coincidencias: [] };
+    render();
+    document.getElementById('inputCodigoMadre')?.focus();
+    return;
+  }
+
+  try {
+    const json = await jsonpRequest({ action: 'sugerirCategoriaPorCodigo', codigo });
+    if (json.error) throw new Error(json.error);
+    state.pubNuevaSugerencia = { ...json, buscado: true };
+  } catch (err){
+    state.pubNuevaSugerencia = null;
+  }
+  render();
+  const el = document.getElementById('inputCodigoMadre');
+  if (el){ el.focus(); el.setSelectionRange(el.value.length, el.value.length); }
+}
+
+function seleccionarCategoriaPubNueva(categoria){
+  if (!categoria) return;
+  state.pubNueva = { categoria, codigoTemp: '', campos: {} };
+  // Si venías de escribir un código madre, lo llevamos como SKU inicial.
+  if (state.pubNuevaCodigoTentativo){
+    state.pubNueva.campos.sku = state.pubNuevaCodigoTentativo.trim();
+  }
+  // Los campos "fijo" (ej. Cargo por vender) vienen predeterminados por
+  // ML según la cuenta/categoría — se auto-completan, no los llena el usuario.
+  const camposCat = (state.plantillas.camposPorCategoria[categoria] || []);
+  camposCat.forEach(c => {
+    if (c.tipoControl === 'fijo' && c.valorPorDefecto){
+      state.pubNueva.campos[c.clave] = c.valorPorDefecto;
+    }
+  });
+  render();
 }
 
 async function guardarBorradorPubNueva(){
