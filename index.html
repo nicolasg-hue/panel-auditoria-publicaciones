@@ -332,6 +332,14 @@ button{font-family:inherit;}
   display:flex; justify-content:space-between; margin-top:14px; padding-top:12px;
   border-top:1px solid var(--border); font-size:13px; font-weight:700;
 }
+.pubnueva-resumen{
+  display:flex; justify-content:space-between; align-items:center;
+  background:var(--surface); border:1px solid var(--border); border-radius:var(--radius-md);
+  padding:14px 18px; margin-bottom:18px; font-size:14px;
+}
+.pubnueva-contador{font-size:13px; font-weight:600;}
+.pubnueva-contador.completo{color:var(--ok);}
+.pubnueva-contador.incompleto{color:var(--warn);}
 
 .obs-general textarea{min-height:90px;}
 
@@ -384,6 +392,7 @@ button{font-family:inherit;}
     </div>
     <div class="crumbs" id="crumbs"></div>
     <div class="topbar-spacer"></div>
+    <button class="back-btn" id="btnPublicacionesNuevas" style="margin-right:4px;">🆕 Publicaciones nuevas</button>
     <button class="back-btn" id="btnResumen" style="margin-right:4px;">📊 Resumen semanal</button>
     <div class="user-select">
       <span class="avatar" id="userAvatar">–</span>
@@ -415,12 +424,14 @@ const API_URL = 'https://script.google.com/macros/s/AKfycbxG3FRq5QZjiAhMNwXktTY1
 const state = {
   config: { campos: [], listas: {} },
   data: { mercadolibre: [], web: [] },
-  view: 'home',        // home | list | detail
+  view: 'home',        // home | list | detail | publicacionesNuevas
   canal: 'ML',          // ML | Web
   filters: { estado: 'pendientes', categoria: '', responsable: '', q: '', fecha: '', prioridad: '' },
   currentIndex: 0,
   currentUser: '',
-  pendingSaves: 0
+  pendingSaves: 0,
+  plantillas: null,     // se carga bajo demanda: { categorias, camposPorCategoria }
+  pubNueva: { categoria: '', codigoTemp: '', campos: {} }
 };
 
 const ESTADOS_BASE = ['Pendiente', 'En revisión', 'Requiere cambios', 'Optimizada'];
@@ -654,6 +665,10 @@ function goDetail(canal, index){ state.canal = canal; state.currentIndex = index
 document.getElementById('brandHome').addEventListener('click', goHome);
 document.getElementById('brandHome').addEventListener('keypress', e => { if (e.key==='Enter') goHome(); });
 document.getElementById('btnResumen').addEventListener('click', showResumenModal);
+document.getElementById('btnPublicacionesNuevas').addEventListener('click', () => {
+  state.view = 'publicacionesNuevas';
+  render();
+});
 
 function render(){
   const main = document.getElementById('main');
@@ -670,6 +685,10 @@ function render(){
     crumbs.innerHTML = `<span class="sep">/</span><span>${state.canal === 'Web' ? 'Tienda Web' : 'Mercado Libre'}</span><span class="sep">/</span><span class="active">Ficha</span>`;
     main.innerHTML = renderDetail();
     attachDetailEvents();
+  } else if (state.view === 'publicacionesNuevas'){
+    crumbs.innerHTML = `<span class="sep">/</span><span class="active">Publicaciones nuevas</span>`;
+    main.innerHTML = renderPublicacionesNuevas();
+    attachPublicacionesNuevasEvents();
   }
 }
 
@@ -838,6 +857,233 @@ let searchDebounce;
 function refreshListOnly(){
   clearTimeout(searchDebounce);
   searchDebounce = setTimeout(render, 180);
+}
+
+/* ============================================================================
+   PUBLICACIONES NUEVAS (wizard de carga por categoría, hacia carga masiva ML)
+   ========================================================================== */
+
+async function loadPlantillasIfNeeded(){
+  if (state.plantillas) return;
+  if (!API_URL){
+    state.plantillas = buildDemoPlantillas();
+    return;
+  }
+  try {
+    const json = await jsonpRequest({ action: 'getPlantillas' });
+    if (json.error) throw new Error(json.error);
+    state.plantillas = json;
+  } catch (err){
+    state.plantillas = { categorias: [], camposPorCategoria: {}, _error: err.message };
+  }
+}
+
+function renderPublicacionesNuevas(){
+  if (!state.plantillas){
+    // Se está cargando: pintamos un loading y disparamos la carga real,
+    // que al terminar vuelve a llamar a render().
+    loadPlantillasIfNeeded().then(render);
+    return `<div class="loading-screen"><div class="spinner"></div><span>Cargando plantillas de categorías…</span></div>`;
+  }
+
+  if (state.plantillas._error){
+    return `<div class="empty-state"><h3>No se pudieron cargar las plantillas</h3><p>${escapeHtml(state.plantillas._error)}</p></div>`;
+  }
+
+  const categorias = state.plantillas.categorias;
+  const catSeleccionada = state.pubNueva.categoria;
+
+  let html = `
+    <div class="list-toolbar">
+      <button class="back-btn" id="btnBackHomeDesdePubNueva">← Inicio</button>
+      ${catSeleccionada ? `<button class="back-btn" id="btnCambiarCategoria">🔄 Cambiar categoría</button>` : ''}
+    </div>
+    <div style="max-width:760px;">
+      <h2 style="margin:4px 0 4px;">🆕 Publicaciones nuevas</h2>
+      <p style="color:var(--ink-soft); font-size:13.5px; margin-bottom:20px;">
+        Elegí la categoría de Mercado Libre para armar la ficha con los campos exactos que pide esa categoría.
+      </p>
+  `;
+
+  if (!catSeleccionada){
+    html += `
+      <div class="field-row">
+        <label>Categoría</label>
+        <select id="selectorCategoria" style="padding:8px 10px; border:1px solid var(--border); border-radius:8px; font:inherit; min-width:260px;">
+          <option value="">Elegí una categoría…</option>
+          ${categorias.map(c => `<option value="${escapeHtml(c)}">${escapeHtml(c)}</option>`).join('')}
+        </select>
+      </div>`;
+    html += `</div>`;
+    return html;
+  }
+
+  const campos = state.plantillas.camposPorCategoria[catSeleccionada] || [];
+  const secciones = {};
+  campos.forEach(c => { (secciones[c.seccion] = secciones[c.seccion] || []).push(c); });
+
+  const { completos, totales, faltantes } = calcularCompletitudPubNueva(campos);
+
+  html += `
+    <div class="pubnueva-resumen">
+      <div><strong>${escapeHtml(catSeleccionada)}</strong></div>
+      <div class="pubnueva-contador ${faltantes.length ? 'incompleto' : 'completo'}">
+        ${completos}/${totales} campos completos
+        ${faltantes.length ? ` · faltan ${faltantes.length} obligatorio(s)` : ' · ✔ todos los obligatorios completos'}
+      </div>
+    </div>
+  `;
+
+  Object.keys(secciones).forEach(seccion => {
+    html += `<div class="checklist-section"><h4>${escapeHtml(seccion || 'General')}</h4>`;
+    secciones[seccion].forEach(c => {
+      html += renderCampoPubNueva(c);
+    });
+    html += `</div>`;
+  });
+
+  html += `
+    <div style="display:flex; gap:10px; margin:24px 0 40px;">
+      <button class="confirm-btn" id="btnGuardarBorrador">💾 Guardar borrador</button>
+    </div>
+  </div>`;
+
+  return html;
+}
+
+function renderCampoPubNueva(c){
+  const valorActual = state.pubNueva.campos[c.clave] ?? '';
+  const marcaObligatoria = c.obligatorio ? '<span style="color:var(--danger);">*</span>' : '';
+
+  let control;
+  if (c.tipoControl === 'select' && c.opciones.length){
+    control = `
+      <select data-campo-pn="${c.clave}" style="padding:8px 10px; border:1px solid var(--border); border-radius:8px; font:inherit; width:100%;">
+        <option value="">Elegir…</option>
+        ${c.opciones.map(o => `<option value="${escapeHtml(o)}" ${valorActual===o?'selected':''}>${escapeHtml(o)}</option>`).join('')}
+      </select>`;
+  } else if (c.tipoControl === 'number'){
+    control = `<input type="number" data-campo-pn="${c.clave}" value="${escapeHtml(valorActual)}" style="padding:8px 10px; border:1px solid var(--border); border-radius:8px; font:inherit; width:100%;">`;
+  } else {
+    control = `<textarea data-campo-pn="${c.clave}" rows="2" style="padding:8px 10px; border:1px solid var(--border); border-radius:8px; font:inherit; width:100%; resize:vertical;">${escapeHtml(valorActual)}</textarea>`;
+  }
+
+  return `
+    <div class="field-row" data-clave-pn="${c.clave}">
+      <label>${escapeHtml(c.etiqueta)} ${marcaObligatoria}</label>
+      <div>
+        ${control}
+        ${c.ayuda ? `<div style="font-size:11.5px; color:var(--ink-soft); margin-top:4px;">${escapeHtml(c.ayuda.slice(0,160))}</div>` : ''}
+      </div>
+    </div>`;
+}
+
+function calcularCompletitudPubNueva(campos){
+  let completos = 0;
+  const faltantes = [];
+  campos.forEach(c => {
+    const v = state.pubNueva.campos[c.clave];
+    const tieneValor = v !== undefined && v !== null && String(v).trim() !== '';
+    if (tieneValor) completos++;
+    else if (c.obligatorio) faltantes.push(c.etiqueta);
+  });
+  return { completos, totales: campos.length, faltantes };
+}
+
+function attachPublicacionesNuevasEvents(){
+  const btnHome = document.getElementById('btnBackHomeDesdePubNueva');
+  if (btnHome) btnHome.addEventListener('click', goHome);
+
+  const btnCambiar = document.getElementById('btnCambiarCategoria');
+  if (btnCambiar) btnCambiar.addEventListener('click', () => {
+    state.pubNueva = { categoria: '', codigoTemp: '', campos: {} };
+    render();
+  });
+
+  const selectorCategoria = document.getElementById('selectorCategoria');
+  if (selectorCategoria){
+    selectorCategoria.addEventListener('change', e => {
+      state.pubNueva = { categoria: e.target.value, codigoTemp: '', campos: {} };
+      render();
+    });
+  }
+
+  document.querySelectorAll('[data-campo-pn]').forEach(el => {
+    let t;
+    const actualizar = () => {
+      state.pubNueva.campos[el.dataset.campoPn] = el.value;
+      clearTimeout(t);
+      t = setTimeout(() => { render(); restaurarFoco(el); }, 400);
+    };
+    el.addEventListener('input', actualizar);
+    el.addEventListener('change', actualizar);
+  });
+
+  const btnGuardar = document.getElementById('btnGuardarBorrador');
+  if (btnGuardar) btnGuardar.addEventListener('click', guardarBorradorPubNueva);
+}
+
+// Como renderPublicacionesNuevas() re-renderiza todo el HTML (para
+// refrescar el contador de completitud en vivo), el foco del campo que se
+// estaba editando se pierde. Lo restauramos por su atributo data-campo-pn.
+function restaurarFoco(elOriginal){
+  const clave = elOriginal.dataset.campoPn;
+  const el = document.querySelector(`[data-campo-pn="${clave}"]`);
+  if (el) el.focus();
+}
+
+async function guardarBorradorPubNueva(){
+  const btn = document.getElementById('btnGuardarBorrador');
+  const original = btn.textContent;
+  btn.disabled = true;
+  btn.textContent = 'Guardando…';
+
+  try {
+    if (!API_URL){
+      await new Promise(r => setTimeout(r, 500));
+      showToast('Modo demo: se simularía el guardado del borrador');
+      return;
+    }
+    const json = await jsonpRequest({
+      action: 'guardarPublicacionNueva',
+      categoria: state.pubNueva.categoria,
+      codigoTemp: state.pubNueva.codigoTemp,
+      campos: JSON.stringify(state.pubNueva.campos),
+      usuario: state.currentUser
+    });
+    if (json.error) throw new Error(json.error);
+    state.pubNueva.codigoTemp = json.codigoTemp;
+    showToast(
+      `Guardado ✓ (${json.completos}/${json.totales} campos) — ` +
+      (json.estado === 'Completa' ? 'lista para exportar' : `faltan ${json.faltantesObligatorios.length} obligatorio(s)`)
+    );
+  } catch (err){
+    showToast('Error al guardar: ' + err.message);
+  } finally {
+    btn.disabled = false;
+    btn.textContent = original;
+  }
+}
+
+// Datos de ejemplo para el modo demo (sin API_URL no hay PlantillasPublicacion real)
+function buildDemoPlantillas(){
+  return {
+    categorias: ['Tiras de LED', 'Chips Leds'],
+    camposPorCategoria: {
+      'Tiras de LED': [
+        { orden:1, seccion:'Información del producto', clave:'titulo', etiqueta:'Título', obligatorio:true, tipoControl:'text', opciones:[], ayuda:'Máximo 60 caracteres.' },
+        { orden:2, seccion:'Información del producto', clave:'condicion', etiqueta:'Condición', obligatorio:true, tipoControl:'select', opciones:['Nuevo','Usado','Reacondicionado'], ayuda:'' },
+        { orden:3, seccion:'Información del producto', clave:'codigo_universal', etiqueta:'Código universal de producto', obligatorio:true, tipoControl:'text', opciones:[], ayuda:'EAN/UPC del producto.' },
+        { orden:4, seccion:'Información del producto', clave:'precio', etiqueta:'Precio [$]', obligatorio:true, tipoControl:'number', opciones:[], ayuda:'' },
+        { orden:5, seccion:'Características del producto', clave:'voltaje', etiqueta:'Voltaje', obligatorio:false, tipoControl:'text', opciones:[], ayuda:'' },
+        { orden:6, seccion:'Características del producto', clave:'wi_fi', etiqueta:'Wi-Fi', obligatorio:false, tipoControl:'select', opciones:['Sí','No'], ayuda:'' }
+      ],
+      'Chips Leds': [
+        { orden:1, seccion:'Información del producto', clave:'titulo', etiqueta:'Título', obligatorio:true, tipoControl:'text', opciones:[], ayuda:'' },
+        { orden:2, seccion:'Características del producto', clave:'tipo_de_chip_led', etiqueta:'Tipo de chip LED', obligatorio:true, tipoControl:'text', opciones:[], ayuda:'' }
+      ]
+    }
+  };
 }
 
 /* ---- DETAIL ---- */
