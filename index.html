@@ -876,9 +876,9 @@ function renderDetail(){
           ${chipPrioridad}
           <span class="chip">${escapeHtml(item.Categoria || 'Sin categoría')}</span>
           <span class="badge ${ESTADO_CLASS[item.Estado]||'pendiente'}">${item.Estado || 'Pendiente'}</span>
-          <span class="chip" style="padding:0; display:inline-flex; align-items:center; gap:6px; padding-left:12px;">
-            Ejecutivo:
-            <select id="fichaResponsable" style="border:none; background:transparent; font:inherit; color:inherit; cursor:pointer; padding:6px 8px 6px 2px;">
+          <span style="display:inline-flex; align-items:center; gap:6px; background:var(--surface); border:1px solid var(--ink-faint); border-radius:999px; padding:4px 6px 4px 12px; font-size:12.5px; color:var(--ink-soft);">
+            👤 Ejecutivo:
+            <select id="fichaResponsable" title="Click para asignar o cambiar el ejecutivo responsable" style="border:1px solid var(--border); border-radius:6px; background:var(--surface); font:inherit; font-weight:600; color:var(--ink); cursor:pointer; padding:4px 8px;">
               <option value="">Sin asignar</option>
               ${(state.config.listas.usuarios||[]).map(u => `<option value="${escapeHtml(u)}" ${item.Responsable===u?'selected':''}>${escapeHtml(u)}</option>`).join('')}
             </select>
