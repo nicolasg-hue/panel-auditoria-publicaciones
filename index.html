@@ -956,7 +956,20 @@ function renderCampoPubNueva(c){
   const marcaObligatoria = c.obligatorio ? '<span style="color:var(--danger);">*</span>' : '';
 
   let control;
-  if (c.tipoControl === 'select' && c.opciones.length){
+  if (c.tipoControl === 'fijo'){
+    // Valor fijo que trae Mercado Libre según tu cuenta/categoría — no editable.
+    control = `
+      <div style="padding:8px 10px; border:1px solid var(--border); border-radius:8px; background:var(--surface-2); color:var(--ink-soft);">
+        🔒 ${escapeHtml(c.valorPorDefecto || '(ML lo completa automáticamente)')}
+      </div>`;
+  } else if (c.tipoControl === 'calculado'){
+    // Se deriva de otro campo (ej. cantidad de caracteres del título) — solo lectura, se recalcula solo.
+    const referenciado = state.pubNueva.campos[c.referencia] || '';
+    control = `
+      <div style="padding:8px 10px; border:1px solid var(--border); border-radius:8px; background:var(--surface-2); color:var(--ink-soft);">
+        📏 ${referenciado.length} caracteres
+      </div>`;
+  } else if (c.tipoControl === 'select' && c.opciones.length){
     control = `
       <select data-campo-pn="${c.clave}" style="padding:8px 10px; border:1px solid var(--border); border-radius:8px; font:inherit; width:100%;">
         <option value="">Elegir…</option>
@@ -964,6 +977,8 @@ function renderCampoPubNueva(c){
       </select>`;
   } else if (c.tipoControl === 'number'){
     control = `<input type="number" data-campo-pn="${c.clave}" value="${escapeHtml(valorActual)}" style="padding:8px 10px; border:1px solid var(--border); border-radius:8px; font:inherit; width:100%;">`;
+  } else if (c.clave === 'fotos'){
+    control = `<textarea data-campo-pn="${c.clave}" rows="2" placeholder="Pegá las URLs separadas por coma: URL1, URL2, URL3…" style="padding:8px 10px; border:1px solid var(--border); border-radius:8px; font:inherit; width:100%; resize:vertical;">${escapeHtml(valorActual)}</textarea>`;
   } else {
     control = `<textarea data-campo-pn="${c.clave}" rows="2" style="padding:8px 10px; border:1px solid var(--border); border-radius:8px; font:inherit; width:100%; resize:vertical;">${escapeHtml(valorActual)}</textarea>`;
   }
@@ -981,13 +996,14 @@ function renderCampoPubNueva(c){
 function calcularCompletitudPubNueva(campos){
   let completos = 0;
   const faltantes = [];
-  campos.forEach(c => {
+  const contables = campos.filter(c => c.tipoControl !== 'calculado');
+  contables.forEach(c => {
     const v = state.pubNueva.campos[c.clave];
     const tieneValor = v !== undefined && v !== null && String(v).trim() !== '';
     if (tieneValor) completos++;
     else if (c.obligatorio) faltantes.push(c.etiqueta);
   });
-  return { completos, totales: campos.length, faltantes };
+  return { completos, totales: contables.length, faltantes };
 }
 
 function attachPublicacionesNuevasEvents(){
@@ -1003,7 +1019,16 @@ function attachPublicacionesNuevasEvents(){
   const selectorCategoria = document.getElementById('selectorCategoria');
   if (selectorCategoria){
     selectorCategoria.addEventListener('change', e => {
-      state.pubNueva = { categoria: e.target.value, codigoTemp: '', campos: {} };
+      const categoria = e.target.value;
+      state.pubNueva = { categoria, codigoTemp: '', campos: {} };
+      // Los campos "fijo" (ej. Cargo por vender) vienen predeterminados por
+      // ML según la cuenta/categoría — se auto-completan, no los llena el usuario.
+      const camposCat = (state.plantillas.camposPorCategoria[categoria] || []);
+      camposCat.forEach(c => {
+        if (c.tipoControl === 'fijo' && c.valorPorDefecto){
+          state.pubNueva.campos[c.clave] = c.valorPorDefecto;
+        }
+      });
       render();
     });
   }
@@ -1072,11 +1097,14 @@ function buildDemoPlantillas(){
     camposPorCategoria: {
       'Tiras de LED': [
         { orden:1, seccion:'Información del producto', clave:'titulo', etiqueta:'Título', obligatorio:true, tipoControl:'text', opciones:[], ayuda:'Máximo 60 caracteres.' },
+        { orden:1.5, seccion:'Información del producto', clave:'cantidad_de_caracteres', etiqueta:'Cantidad de caracteres', obligatorio:false, tipoControl:'calculado', opciones:[], referencia:'titulo', ayuda:'' },
         { orden:2, seccion:'Información del producto', clave:'condicion', etiqueta:'Condición', obligatorio:true, tipoControl:'select', opciones:['Nuevo','Usado','Reacondicionado'], ayuda:'' },
-        { orden:3, seccion:'Información del producto', clave:'codigo_universal', etiqueta:'Código universal de producto', obligatorio:true, tipoControl:'text', opciones:[], ayuda:'EAN/UPC del producto.' },
+        { orden:3, seccion:'Información del producto', clave:'codigo_universal_de_producto', etiqueta:'Código universal de producto', obligatorio:true, tipoControl:'text', opciones:[], ayuda:'EAN/UPC del producto.' },
         { orden:4, seccion:'Información del producto', clave:'precio', etiqueta:'Precio [$]', obligatorio:true, tipoControl:'number', opciones:[], ayuda:'' },
         { orden:5, seccion:'Características del producto', clave:'voltaje', etiqueta:'Voltaje', obligatorio:false, tipoControl:'text', opciones:[], ayuda:'' },
-        { orden:6, seccion:'Características del producto', clave:'wi_fi', etiqueta:'Wi-Fi', obligatorio:false, tipoControl:'select', opciones:['Sí','No'], ayuda:'' }
+        { orden:6, seccion:'Características del producto', clave:'wi_fi', etiqueta:'Wi-Fi', obligatorio:false, tipoControl:'select', opciones:['Sí','No'], ayuda:'' },
+        { orden:7, seccion:'Condiciones de la publicación', clave:'cargo_por_vender', etiqueta:'Cargo por vender', obligatorio:false, tipoControl:'fijo', opciones:[], valorPorDefecto:'14.5%', ayuda:'' },
+        { orden:8, seccion:'Condiciones de la publicación', clave:'forma_de_envio', etiqueta:'Forma de envío', obligatorio:true, tipoControl:'select', opciones:['Mercado Envíos','Mercado Envíos | Mercado Envíos Flex'], ayuda:'' }
       ],
       'Chips Leds': [
         { orden:1, seccion:'Información del producto', clave:'titulo', etiqueta:'Título', obligatorio:true, tipoControl:'text', opciones:[], ayuda:'' },
