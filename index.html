@@ -387,6 +387,7 @@ button{font-family:inherit;}
 @keyframes spin{to{transform:rotate(360deg);}}
 </style>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<script src="/modules/shell-bridge.js"></script>
 </head>
 <body>
 
@@ -423,6 +424,10 @@ button{font-family:inherit;}
    de conectar Google Sheets.
    ========================================================================== */
 const API_URL = 'https://script.google.com/macros/s/AKfycbxG3FRq5QZjiAhMNwXktTY1ygWTN70OJRv84jrFCf7o5fbMVJHyEQq-bnuTiJjK-z8k0A/exec'; // ej: 'https://script.google.com/macros/s/XXXXX/exec'
+// Mismo token que se guarda en Propiedades del script (Apps Script), como
+// GEMINI_API_KEY. Viaja en cada pedido para que el backend sepa que es una
+// llamada autorizada (panel, equipo, o el Superagente que se conecte).
+const API_TOKEN = 'uZ-FQ9onY3gNaLfauIJ-vLuYtqE18Mh-_Z2Y_iLC9Vo';
 
 /* ============================================================================
    ESTADO GLOBAL
@@ -565,9 +570,10 @@ function jsonpRequest(params){
     const cleanup = () => { delete window[cbName]; script.remove(); };
     window[cbName] = (data) => { cleanup(); resolve(data); };
 
-    const query = Object.keys(params)
-      .filter(k => params[k] !== undefined && params[k] !== null)
-      .map(k => encodeURIComponent(k) + '=' + encodeURIComponent(params[k]))
+    const paramsConToken = Object.assign({}, params, { token: API_TOKEN });
+    const query = Object.keys(paramsConToken)
+      .filter(k => paramsConToken[k] !== undefined && paramsConToken[k] !== null)
+      .map(k => encodeURIComponent(k) + '=' + encodeURIComponent(paramsConToken[k]))
       .join('&');
 
     const script = document.createElement('script');
@@ -648,6 +654,13 @@ function showToast(msg){
   t.classList.add('show');
   clearTimeout(t._timer);
   t._timer = setTimeout(()=>t.classList.remove('show'), 2200);
+  // Si corre embebido dentro del portal de Lovable, además avisamos por el
+  // bridge para que se vea como notificación unificada del shell. Es un
+  // no-op fuera del iframe (standalone / GitHub Pages / local).
+  if (typeof Shell !== 'undefined' && Shell.inShell){
+    const esError = /error|no se pudo/i.test(msg);
+    Shell.notify({ level: esError ? 'error' : 'info', message: msg });
+  }
 }
 function getRows(canal){
   return canal === 'Web' ? state.data.web : state.data.mercadolibre;
@@ -685,19 +698,30 @@ function render(){
     crumbs.innerHTML = '';
     main.innerHTML = renderHome();
     attachHomeEvents();
+    updateShellTitle('Inicio · ML y Web');
   } else if (state.view === 'list'){
     crumbs.innerHTML = `<span class="sep">/</span><span class="active">${state.canal === 'Web' ? 'Tienda Web' : 'Mercado Libre'}</span>`;
     main.innerHTML = renderList();
     attachListEvents();
+    updateShellTitle(`${state.canal === 'Web' ? 'Tienda Web' : 'Mercado Libre'} · ${filteredRows().length} publicaciones`);
   } else if (state.view === 'detail'){
     crumbs.innerHTML = `<span class="sep">/</span><span>${state.canal === 'Web' ? 'Tienda Web' : 'Mercado Libre'}</span><span class="sep">/</span><span class="active">Ficha</span>`;
     main.innerHTML = renderDetail();
     attachDetailEvents();
+    const list = currentFilteredList();
+    const item = list[Math.min(state.currentIndex, list.length - 1)];
+    updateShellTitle(item ? `Ficha · ${item.Producto || item.MLA_SKU}` : 'Ficha');
   } else if (state.view === 'publicacionesNuevas'){
     crumbs.innerHTML = `<span class="sep">/</span><span class="active">Publicaciones nuevas</span>`;
     main.innerHTML = renderPublicacionesNuevas();
     attachPublicacionesNuevasEvents();
+    updateShellTitle(state.pubNueva.categoria ? `Publicaciones nuevas · ${state.pubNueva.categoria}` : 'Publicaciones nuevas');
   }
+}
+
+// No-op fuera del portal de Lovable (standalone / GitHub Pages / local).
+function updateShellTitle(texto){
+  if (typeof Shell !== 'undefined' && Shell.inShell) Shell.setTitle(texto);
 }
 
 /* ---- HOME ---- */
@@ -974,8 +998,11 @@ function renderPublicacionesNuevas(){
   });
 
   html += `
-    <div style="display:flex; gap:10px; margin:24px 0 40px;">
+    <div style="display:flex; gap:10px; margin:24px 0 40px; flex-wrap:wrap; align-items:center;">
       <button class="confirm-btn" id="btnGuardarBorrador">💾 Guardar borrador</button>
+      <button class="back-btn" id="btnExportarML">📤 Exportar a Excel de ML</button>
+      <input type="file" id="inputPlantillaML" accept=".xlsx,.xls" style="display:none;">
+      <span style="font-size:11.5px; color:var(--ink-soft);">Te va a pedir la planilla original de ML de esta categoría (la que descargaste sin tocar).</span>
     </div>
   </div>`;
 
@@ -1084,6 +1111,13 @@ function attachPublicacionesNuevasEvents(){
 
   const btnGuardar = document.getElementById('btnGuardarBorrador');
   if (btnGuardar) btnGuardar.addEventListener('click', guardarBorradorPubNueva);
+
+  const btnExportar = document.getElementById('btnExportarML');
+  if (btnExportar) btnExportar.addEventListener('click', () => {
+    document.getElementById('inputPlantillaML').click();
+  });
+  const inputPlantillaML = document.getElementById('inputPlantillaML');
+  if (inputPlantillaML) inputPlantillaML.addEventListener('change', handleExportarExcelML);
 }
 
 // Como renderPublicacionesNuevas() re-renderiza todo el HTML (para
@@ -1170,6 +1204,92 @@ async function guardarBorradorPubNueva(){
   } finally {
     btn.disabled = false;
     btn.textContent = original;
+  }
+}
+
+/* ============================================================================
+   EXPORTACIÓN AL EXCEL ORIGINAL DE MERCADO LIBRE
+   ============================================================================
+   No reconstruimos el formato de ML a mano (cambia por categoría y con el
+   tiempo): tomamos el archivo real que el usuario descargó de ML —tal cual,
+   sin tocar— y solo completamos los valores en las celdas correctas, usando
+   la columna Excel exacta que guardamos en PlantillasPublicacion al parsear
+   ese mismo archivo. Así se conserva el formato, las validaciones y todo lo
+   que ML espera recibir de vuelta.
+   ========================================================================== */
+async function handleExportarExcelML(e){
+  const file = e.target.files[0];
+  e.target.value = '';
+  if (!file) return;
+
+  if (typeof XLSX === 'undefined'){
+    showToast('No se pudo cargar el lector de Excel (revisá tu conexión)');
+    return;
+  }
+
+  const categoria = state.pubNueva.categoria;
+  const campos = (state.plantillas.camposPorCategoria[categoria] || []);
+  if (campos.length === 0){
+    showToast('No hay plantilla cargada para esta categoría');
+    return;
+  }
+
+  showToast('Abriendo tu planilla de Mercado Libre…');
+  try {
+    const buffer = await file.arrayBuffer();
+    const wb = XLSX.read(buffer, { type: 'array', cellStyles: true });
+
+    if (!wb.SheetNames.includes(categoria)){
+      showToast(`Esa planilla no tiene una pestaña "${categoria}". ¿Es el archivo de ML de esta categoría?`);
+      return;
+    }
+    const ws = wb.Sheets[categoria];
+
+    // Columna que usamos como "señal" de fila vacía: el Título. Buscamos la
+    // primera fila desde la 9 (donde ML empieza a esperar productos) que
+    // todavía no tenga nada cargado ahí.
+    const campoTitulo = campos.find(c => c.clave === 'titulo');
+    const colTitulo = campoTitulo ? XLSX.utils.decode_col(campoTitulo.columnaExcel) : 1;
+
+    let filaDestino = 9; // 1-indexed, como en el Excel real
+    while (true){
+      const ref = XLSX.utils.encode_cell({ r: filaDestino - 1, c: colTitulo });
+      const celda = ws[ref];
+      if (!celda || celda.v === undefined || celda.v === '') break;
+      filaDestino++;
+      if (filaDestino > 10000) { showToast('No se encontró una fila libre en la planilla'); return; }
+    }
+
+    // Escribimos cada campo en su columna real, incluyendo los calculados
+    // (ej. cantidad de caracteres) y los fijos (ej. cargo por vender).
+    campos.forEach(c => {
+      if (!c.columnaExcel) return;
+      let valor = state.pubNueva.campos[c.clave];
+      if (c.tipoControl === 'calculado'){
+        valor = String(state.pubNueva.campos[c.referencia] || '').length;
+      }
+      if (valor === undefined || valor === null || valor === '') return;
+
+      const col = XLSX.utils.decode_col(c.columnaExcel);
+      const ref = XLSX.utils.encode_cell({ r: filaDestino - 1, c: col });
+      const esNumero = c.tipoControl === 'number' || c.tipoControl === 'calculado';
+      const valorFinal = esNumero && !isNaN(Number(valor)) ? Number(valor) : String(valor);
+
+      if (ws[ref]){
+        // Reescribimos el valor pero conservamos el formato/estilo de la celda original.
+        ws[ref].v = valorFinal;
+        ws[ref].t = typeof valorFinal === 'number' ? 'n' : 's';
+        delete ws[ref].f; // por si la celda tenía una fórmula de ejemplo, la pisamos con el dato real
+      } else {
+        ws[ref] = { v: valorFinal, t: typeof valorFinal === 'number' ? 'n' : 's' };
+      }
+    });
+
+    const nombreArchivo = `ML_${categoria.replace(/\s+/g,'_')}_${state.pubNueva.campos.sku || state.pubNueva.codigoTemp || 'export'}.xlsx`;
+    XLSX.writeFile(wb, nombreArchivo);
+    showToast(`Exportado ✓ — fila ${filaDestino} de la pestaña "${categoria}"`);
+  } catch (err){
+    showToast('Error al exportar: ' + err.message);
   }
 }
 
