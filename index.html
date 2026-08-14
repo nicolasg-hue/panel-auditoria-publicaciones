@@ -399,6 +399,7 @@ button{font-family:inherit;}
     </div>
     <div class="crumbs" id="crumbs"></div>
     <div class="topbar-spacer"></div>
+    <button class="back-btn" id="btnSolicitudNueva" style="margin-right:4px;">📋 Solicitar publicación nueva</button>
     <button class="back-btn" id="btnPublicacionesNuevas" style="margin-right:4px;">🆕 Publicaciones nuevas</button>
     <button class="back-btn" id="btnResumen" style="margin-right:4px;">📊 Resumen semanal</button>
     <div class="user-select">
@@ -444,7 +445,9 @@ const state = {
   plantillas: null,     // se carga bajo demanda: { categorias, camposPorCategoria }
   pubNueva: { categoria: '', codigoTemp: '', campos: {} },
   pubNuevaCodigoTentativo: '',
-  pubNuevaSugerencia: null   // { categoria, prefijo, coincidencias, buscado }
+  pubNuevaSugerencia: null,  // { categoria, prefijo, coincidencias, buscado }
+  solicitudes: null,         // se carga bajo demanda
+  nuevaSolicitud: { categoria: '', motivo: '', cantidadSkus: '', observaciones: '', ejecutivoAsignado: '' }
 };
 
 const ESTADOS_BASE = ['Pendiente', 'En revisión', 'Requiere cambios', 'Optimizada'];
@@ -690,6 +693,10 @@ document.getElementById('btnPublicacionesNuevas').addEventListener('click', () =
   state.view = 'publicacionesNuevas';
   render();
 });
+document.getElementById('btnSolicitudNueva').addEventListener('click', () => {
+  state.view = 'solicitudes';
+  render();
+});
 
 function render(){
   const main = document.getElementById('main');
@@ -716,6 +723,11 @@ function render(){
     main.innerHTML = renderPublicacionesNuevas();
     attachPublicacionesNuevasEvents();
     updateShellTitle(state.pubNueva.categoria ? `Publicaciones nuevas · ${state.pubNueva.categoria}` : 'Publicaciones nuevas');
+  } else if (state.view === 'solicitudes'){
+    crumbs.innerHTML = `<span class="sep">/</span><span class="active">Solicitudes de publicación</span>`;
+    main.innerHTML = renderSolicitudes();
+    attachSolicitudesEvents();
+    updateShellTitle('Solicitudes de publicación');
   }
 }
 
@@ -889,6 +901,171 @@ let searchDebounce;
 function refreshListOnly(){
   clearTimeout(searchDebounce);
   searchDebounce = setTimeout(render, 180);
+}
+
+/* ============================================================================
+   SOLICITUDES DE PUBLICACIÓN NUEVA (pedido + asignación manual)
+   ========================================================================== */
+
+async function loadSolicitudesIfNeeded(forzar){
+  if (state.solicitudes && !forzar) return;
+  if (!API_URL){
+    state.solicitudes = buildDemoSolicitudes();
+    return;
+  }
+  try {
+    const json = await jsonpRequest({ action: 'getSolicitudes' });
+    if (json.error) throw new Error(json.error);
+    state.solicitudes = json.solicitudes || [];
+  } catch (err){
+    state.solicitudes = [];
+    showToast('No se pudieron cargar las solicitudes: ' + err.message);
+  }
+}
+
+function buildDemoSolicitudes(){
+  return [
+    { fecha:'2026-08-10', hora:'11:20:00', codigoSolicitud:'SOL-DEMO0001', categoria:'Tiras de LED',
+      motivo:'Estrategia comercial', cantidadSkus:2, observaciones:'Combo nuevo para la campaña de primavera',
+      ejecutivoAsignado:'Carla', usuarioSolicitante:'Nicolás', estado:'Asignada' },
+    { fecha:'2026-08-08', hora:'09:05:00', codigoSolicitud:'SOL-DEMO0002', categoria:'Chips Leds',
+      motivo:'ERP - mercadería en tránsito', cantidadSkus:1, observaciones:'',
+      ejecutivoAsignado:'Martín', usuarioSolicitante:'Nicolás', estado:'Asignada' }
+  ];
+}
+
+function renderSolicitudes(){
+  if (!state.plantillas){
+    loadPlantillasIfNeeded().then(render);
+  }
+  if (!state.solicitudes){
+    loadSolicitudesIfNeeded().then(render);
+  }
+
+  const categorias = state.plantillas ? state.plantillas.categorias : [];
+  const usuarios = state.config.listas.usuarios || [];
+  const f = state.nuevaSolicitud;
+
+  return `
+    <div class="list-toolbar">
+      <button class="back-btn" id="btnBackHomeDesdeSolicitud">← Inicio</button>
+    </div>
+    <div style="max-width:760px;">
+      <h2 style="margin:4px 0 4px;">📋 Solicitud de publicación nueva</h2>
+      <p style="color:var(--ink-soft); font-size:13.5px; margin-bottom:20px;">
+        Pedí una publicación nueva sin tener que armarla vos mismo — queda asignada a quien elijas, y esa
+        persona la arranca desde acá cuando quiera.
+      </p>
+
+      <div class="section-card">
+        <div class="field-row">
+          <label>Categoría *</label>
+          <select id="solCategoria" style="padding:8px 10px; border:1px solid var(--border); border-radius:8px; font:inherit; width:100%; max-width:320px;">
+            <option value="">${categorias.length ? 'Elegí una categoría…' : 'Cargando categorías…'}</option>
+            ${categorias.map(c => `<option value="${escapeHtml(c)}" ${f.categoria===c?'selected':''}>${escapeHtml(c)}</option>`).join('')}
+          </select>
+        </div>
+        <div class="field-row">
+          <label>Motivo *</label>
+          <select id="solMotivo" style="padding:8px 10px; border:1px solid var(--border); border-radius:8px; font:inherit; width:100%; max-width:320px;">
+            <option value="">Elegí un motivo…</option>
+            <option value="ERP - mercadería en tránsito" ${f.motivo==='ERP - mercadería en tránsito'?'selected':''}>ERP - mercadería en tránsito</option>
+            <option value="Estrategia comercial" ${f.motivo==='Estrategia comercial'?'selected':''}>Estrategia comercial</option>
+          </select>
+        </div>
+        <div class="field-row">
+          <label>Cantidad de SKUs</label>
+          <input type="number" id="solCantidadSkus" min="1" value="${escapeHtml(f.cantidadSkus)}" style="padding:8px 10px; border:1px solid var(--border); border-radius:8px; font:inherit; width:140px;">
+        </div>
+        <div class="field-row">
+          <label>Asignar a *</label>
+          <select id="solEjecutivo" style="padding:8px 10px; border:1px solid var(--border); border-radius:8px; font:inherit; width:100%; max-width:320px;">
+            <option value="">Elegí un ejecutivo…</option>
+            ${usuarios.map(u => `<option value="${escapeHtml(u)}" ${f.ejecutivoAsignado===u?'selected':''}>${escapeHtml(u)}</option>`).join('')}
+          </select>
+        </div>
+        <div class="field-row">
+          <label>Observaciones</label>
+          <textarea id="solObservaciones" rows="2" style="padding:8px 10px; border:1px solid var(--border); border-radius:8px; font:inherit; width:100%; resize:vertical;">${escapeHtml(f.observaciones)}</textarea>
+        </div>
+      </div>
+
+      <div style="display:flex; gap:10px; margin:16px 0 32px;">
+        <button class="confirm-btn" id="btnEnviarSolicitud">📩 Enviar solicitud</button>
+      </div>
+
+      <h3 style="font-size:14px; margin-bottom:10px;">Solicitudes existentes</h3>
+      ${renderListaSolicitudes()}
+    </div>
+  `;
+}
+
+function renderListaSolicitudes(){
+  if (!state.solicitudes) return `<div class="loading-screen" style="padding:30px 0;"><div class="spinner"></div></div>`;
+  if (!state.solicitudes.length) return `<div class="empty-state"><h3>Todavía no hay solicitudes</h3></div>`;
+
+  return `
+    <div class="item-list">
+      ${state.solicitudes.map(s => `
+        <div class="item-row" style="grid-template-columns:1fr 140px 140px 100px; cursor:default;">
+          <span class="producto">${escapeHtml(s.categoria)} <span style="color:var(--ink-soft); font-weight:400;">— ${escapeHtml(s.motivo || '')}</span></span>
+          <span class="meta">👤 ${escapeHtml(s.ejecutivoAsignado)}</span>
+          <span class="meta">${escapeHtml(s.fecha)} ${escapeHtml((s.hora||'').slice(0,5))}</span>
+          <span class="badge pendiente">${escapeHtml(s.estado)}</span>
+        </div>`).join('')}
+    </div>`;
+}
+
+function attachSolicitudesEvents(){
+  const btnHome = document.getElementById('btnBackHomeDesdeSolicitud');
+  if (btnHome) btnHome.addEventListener('click', goHome);
+
+  const campos = ['solCategoria','solMotivo','solCantidadSkus','solEjecutivo','solObservaciones'];
+  const mapaClave = { solCategoria:'categoria', solMotivo:'motivo', solCantidadSkus:'cantidadSkus', solEjecutivo:'ejecutivoAsignado', solObservaciones:'observaciones' };
+  campos.forEach(id => {
+    const el = document.getElementById(id);
+    if (el) el.addEventListener('change', () => { state.nuevaSolicitud[mapaClave[id]] = el.value; });
+  });
+
+  const btnEnviar = document.getElementById('btnEnviarSolicitud');
+  if (btnEnviar) btnEnviar.addEventListener('click', enviarSolicitud);
+}
+
+async function enviarSolicitud(){
+  const f = state.nuevaSolicitud;
+  if (!f.categoria || !f.motivo || !f.ejecutivoAsignado){
+    showToast('Completá categoría, motivo y a quién se asigna antes de enviar');
+    return;
+  }
+
+  const btn = document.getElementById('btnEnviarSolicitud');
+  const original = btn.textContent;
+  btn.disabled = true;
+  btn.textContent = 'Enviando…';
+
+  try {
+    if (!API_URL){
+      await new Promise(r => setTimeout(r, 500));
+      showToast('Modo demo: se simularía el envío de la solicitud');
+      return;
+    }
+    const json = await jsonpRequest({
+      action: 'crearSolicitud',
+      categoria: f.categoria, motivo: f.motivo, cantidadSkus: f.cantidadSkus,
+      observaciones: f.observaciones, ejecutivoAsignado: f.ejecutivoAsignado,
+      usuarioSolicitante: state.currentUser
+    });
+    if (json.error) throw new Error(json.error);
+    showToast(`Solicitud enviada ✓ (${json.codigoSolicitud}) — asignada a ${f.ejecutivoAsignado}`);
+    state.nuevaSolicitud = { categoria: '', motivo: '', cantidadSkus: '', observaciones: '', ejecutivoAsignado: '' };
+    await loadSolicitudesIfNeeded(true);
+    render();
+  } catch (err){
+    showToast('Error al enviar la solicitud: ' + err.message);
+  } finally {
+    btn.disabled = false;
+    btn.textContent = original;
+  }
 }
 
 /* ============================================================================
