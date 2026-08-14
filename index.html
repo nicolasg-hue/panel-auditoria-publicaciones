@@ -567,17 +567,33 @@ function buildDemoData(){
    Google Workspace con fetch() contra Apps Script. Una etiqueta <script>
    dinámica no está sujeta a la política CORS del navegador.
    ========================================================================== */
+// Proxy en Lovable Cloud: reenvía el pedido server-side hacia Apps Script,
+// sin que el navegador de quien usa el panel le hable directo a Google —
+// así evitamos el bloqueo de acceso que afecta a algunas cuentas de
+// Workspace, sin importar desde dónde se abra este index.html.
+const PROXY_URL = 'https://nexus-hub-65.lovable.app/api/public/optimizacion/proxy';
+
 function jsonpRequest(params){
+  const paramsConToken = Object.assign({}, params, { token: API_TOKEN });
+  const query = Object.keys(paramsConToken)
+    .filter(k => paramsConToken[k] !== undefined && paramsConToken[k] !== null)
+    .map(k => encodeURIComponent(k) + '=' + encodeURIComponent(paramsConToken[k]))
+    .join('&');
+
+  return fetchViaProxy(query).catch(() => fetchViaJsonpDirecto(query));
+}
+
+async function fetchViaProxy(query){
+  const res = await fetch(PROXY_URL + '?' + query);
+  if (!res.ok) throw new Error('Proxy respondió ' + res.status);
+  return res.json();
+}
+
+function fetchViaJsonpDirecto(query){
   return new Promise((resolve, reject) => {
     const cbName = 'jsonp_cb_' + Date.now() + '_' + Math.floor(Math.random()*1e6);
     const cleanup = () => { delete window[cbName]; script.remove(); };
     window[cbName] = (data) => { cleanup(); resolve(data); };
-
-    const paramsConToken = Object.assign({}, params, { token: API_TOKEN });
-    const query = Object.keys(paramsConToken)
-      .filter(k => paramsConToken[k] !== undefined && paramsConToken[k] !== null)
-      .map(k => encodeURIComponent(k) + '=' + encodeURIComponent(paramsConToken[k]))
-      .join('&');
 
     const script = document.createElement('script');
     script.src = API_URL + '?' + query + '&callback=' + cbName;
