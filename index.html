@@ -1654,14 +1654,20 @@ async function handleExportarExcelML(e){
     const buffer = await file.arrayBuffer();
     const wb = XLSX.read(buffer, { type: 'array', cellStyles: true });
 
-    if (!wb.SheetNames.includes(categoria)){
-      showToast(`Esa planilla no tiene una pestaña "${categoria}". ¿Es el archivo de ML de esta categoría?`);
+    // El nombre que ves en el desplegable (Categoria) puede ser distinto
+    // al nombre real de la pestaña en el Excel de ML (HojaExcelML) — por
+    // ejemplo "Cerraduras Digitales" (visible, sin ambigüedad) vs
+    // "Digitales" (el nombre real de la pestaña en el archivo de ML).
+    const hojaExcel = (state.plantillas.hojaExcelPorCategoria && state.plantillas.hojaExcelPorCategoria[categoria]) || categoria;
+
+    if (!wb.SheetNames.includes(hojaExcel)){
+      showToast(`Esa planilla no tiene una pestaña "${hojaExcel}". ¿Es el archivo de ML de esta categoría?`);
       return;
     }
-    const ws = wb.Sheets[categoria];
+    const ws = wb.Sheets[hojaExcel];
     const filaDestino = escribirFilaEnPlanilla(ws, campos, state.pubNueva.campos);
 
-    const nombreArchivo = `ML_${categoria.replace(/\s+/g,'_')}_${state.pubNueva.campos.sku || state.pubNueva.codigoTemp || 'export'}.xlsx`;
+    const nombreArchivo = `ML_${hojaExcel.replace(/\s+/g,'_')}_${state.pubNueva.campos.sku || state.pubNueva.codigoTemp || 'export'}.xlsx`;
     XLSX.writeFile(wb, nombreArchivo);
     showToast(`Exportado ✓ — fila ${filaDestino} de la pestaña "${categoria}"`);
   } catch (err){
@@ -1774,23 +1780,24 @@ async function handleExportarMultipleExcelML(e){
 
   const categoria = state.pubNueva.categoria;
   const campos = (state.plantillas.camposPorCategoria[categoria] || []);
+  const hojaExcel = (state.plantillas.hojaExcelPorCategoria && state.plantillas.hojaExcelPorCategoria[categoria]) || categoria;
 
   showToast(`Exportando ${seleccionados.length} publicaciones…`);
   try {
     const buffer = await file.arrayBuffer();
     const wb = XLSX.read(buffer, { type: 'array', cellStyles: true });
-    if (!wb.SheetNames.includes(categoria)){
-      showToast(`Esa planilla no tiene una pestaña "${categoria}".`);
+    if (!wb.SheetNames.includes(hojaExcel)){
+      showToast(`Esa planilla no tiene una pestaña "${hojaExcel}".`);
       return;
     }
-    const ws = wb.Sheets[categoria];
+    const ws = wb.Sheets[hojaExcel];
 
     let filaSiguiente = 9;
     seleccionados.forEach(b => {
       filaSiguiente = escribirFilaEnPlanilla(ws, campos, b.campos, filaSiguiente) + 1;
     });
 
-    const nombreArchivo = `ML_${categoria.replace(/\s+/g,'_')}_lote_${seleccionados.length}.xlsx`;
+    const nombreArchivo = `ML_${hojaExcel.replace(/\s+/g,'_')}_lote_${seleccionados.length}.xlsx`;
     XLSX.writeFile(wb, nombreArchivo);
     showToast(`Exportado ✓ — ${seleccionados.length} publicaciones en "${categoria}"`);
     document.getElementById('panelExportarMultiple').innerHTML = '';
