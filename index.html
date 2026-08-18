@@ -943,10 +943,12 @@ function buildDemoSolicitudes(){
   return [
     { fecha:'2026-08-10', hora:'11:20:00', codigoSolicitud:'SOL-DEMO0001', categoria:'Tiras de LED',
       motivo:'Estrategia comercial', cantidadSkus:2, observaciones:'Combo nuevo para la campaña de primavera',
-      ejecutivoAsignado:'Carla', usuarioSolicitante:'Nicolás', estado:'Asignada' },
+      ejecutivoAsignado:'Carla', usuarioSolicitante:'Nicolás', estado:'Asignada',
+      codigoCatalogo:'', fechaCatalogo:'', horaCatalogo:'' },
     { fecha:'2026-08-08', hora:'09:05:00', codigoSolicitud:'SOL-DEMO0002', categoria:'Chips Leds',
       motivo:'ERP - mercadería en tránsito', cantidadSkus:1, observaciones:'',
-      ejecutivoAsignado:'Martín', usuarioSolicitante:'Nicolás', estado:'Asignada' }
+      ejecutivoAsignado:'Martín', usuarioSolicitante:'Nicolás', estado:'Código cargado',
+      codigoCatalogo:'CAT-88213', fechaCatalogo:'2026-08-09', horaCatalogo:'10:15:00' }
   ];
 }
 
@@ -1021,14 +1023,47 @@ function renderListaSolicitudes(){
   if (!state.solicitudes.length) return `<div class="empty-state"><h3>Todavía no hay solicitudes</h3></div>`;
 
   return `
-    <div class="item-list">
-      ${state.solicitudes.map(s => `
-        <div class="item-row" style="grid-template-columns:1fr 140px 140px 100px; cursor:default;">
-          <span class="producto">${escapeHtml(s.categoria)} <span style="color:var(--ink-soft); font-weight:400;">— ${escapeHtml(s.motivo || '')}</span></span>
-          <span class="meta">👤 ${escapeHtml(s.ejecutivoAsignado)}</span>
-          <span class="meta">${escapeHtml(s.fecha)} ${escapeHtml((s.hora||'').slice(0,5))}</span>
-          <span class="badge pendiente">${escapeHtml(s.estado)}</span>
-        </div>`).join('')}
+    <div style="display:flex; flex-direction:column; gap:10px;">
+      ${state.solicitudes.map(s => renderSolicitudCard(s)).join('')}
+    </div>`;
+}
+
+function renderSolicitudCard(s){
+  const tieneCodigo = String(s.codigoCatalogo || '').trim() !== '';
+  const estadoCls = s.estado === 'Código cargado' ? 'revision' : 'pendiente';
+
+  return `
+    <div class="section-card" style="padding:14px 16px;">
+      <div style="display:flex; justify-content:space-between; align-items:flex-start; gap:10px; flex-wrap:wrap;">
+        <div>
+          <div class="producto" style="font-size:14px;">${escapeHtml(s.categoria)}
+            <span style="color:var(--ink-soft); font-weight:400; font-size:12.5px;"> — ${escapeHtml(s.motivo || '')}</span>
+          </div>
+          <div class="meta" style="margin-top:2px;">
+            👤 ${escapeHtml(s.ejecutivoAsignado)} · ${escapeHtml(s.fecha)} ${escapeHtml((s.hora||'').slice(0,5))}
+            ${s.cantidadSkus ? ` · ${escapeHtml(String(s.cantidadSkus))} SKU(s)` : ''}
+            · pedido por ${escapeHtml(s.usuarioSolicitante || '—')}
+          </div>
+          ${s.observaciones ? `<div class="meta" style="margin-top:2px; font-style:italic;">${escapeHtml(s.observaciones)}</div>` : ''}
+        </div>
+        <span class="badge ${estadoCls}">${escapeHtml(s.estado)}</span>
+      </div>
+
+      <div style="margin-top:10px; padding-top:10px; border-top:1px solid var(--border-soft);">
+        ${tieneCodigo ? `
+          <div style="font-size:12.5px; color:var(--ok); display:flex; align-items:center; gap:6px;">
+            ✔ Código de catálogo: <strong>${escapeHtml(s.codigoCatalogo)}</strong>
+            <span style="color:var(--ink-soft); font-weight:400;">(cargado ${escapeHtml(s.fechaCatalogo)} ${escapeHtml((s.horaCatalogo||'').slice(0,5))})</span>
+          </div>
+        ` : `
+          <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap;">
+            <input type="text" data-codigo-catalogo-input="${escapeHtml(s.codigoSolicitud)}"
+              placeholder="Código de revisión de catálogo (ML)"
+              style="padding:6px 10px; border:1px solid var(--border); border-radius:8px; font:inherit; font-size:12.5px; min-width:220px;">
+            <button class="ai-prompt-btn" data-confirmar-codigo="${escapeHtml(s.codigoSolicitud)}">✔ Confirmar código</button>
+          </div>
+        `}
+      </div>
     </div>`;
 }
 
@@ -1045,6 +1080,43 @@ function attachSolicitudesEvents(){
 
   const btnEnviar = document.getElementById('btnEnviarSolicitud');
   if (btnEnviar) btnEnviar.addEventListener('click', enviarSolicitud);
+
+  document.querySelectorAll('[data-confirmar-codigo]').forEach(btn => {
+    btn.addEventListener('click', () => confirmarCodigoCatalogo(btn.dataset.confirmarCodigo, btn));
+  });
+}
+
+async function confirmarCodigoCatalogo(codigoSolicitud, btn){
+  const input = document.querySelector(`[data-codigo-catalogo-input="${codigoSolicitud}"]`);
+  const codigoCatalogo = (input.value || '').trim();
+  if (!codigoCatalogo){
+    showToast('Escribí el código de revisión antes de confirmar');
+    input.focus();
+    return;
+  }
+
+  const original = btn.textContent;
+  btn.disabled = true;
+  btn.textContent = 'Guardando…';
+
+  try {
+    if (!API_URL){
+      await new Promise(r => setTimeout(r, 400));
+      showToast('Modo demo: se simularía guardar el código y avisar por mail');
+      return;
+    }
+    const json = await jsonpRequest({
+      action: 'guardarCodigoCatalogo', codigoSolicitud, codigoCatalogo, usuario: state.currentUser
+    });
+    if (json.error) throw new Error(json.error);
+    showToast('Código guardado ✓ — se avisó por mail');
+    await loadSolicitudesIfNeeded(true);
+    render();
+  } catch (err){
+    showToast('Error al guardar el código: ' + err.message);
+    btn.disabled = false;
+    btn.textContent = original;
+  }
 }
 
 async function enviarSolicitud(){
