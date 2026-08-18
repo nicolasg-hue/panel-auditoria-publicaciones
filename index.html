@@ -944,11 +944,11 @@ function buildDemoSolicitudes(){
     { fecha:'2026-08-10', hora:'11:20:00', codigoSolicitud:'SOL-DEMO0001', categoria:'Tiras de LED',
       motivo:'Estrategia comercial', cantidadSkus:2, observaciones:'Combo nuevo para la campaña de primavera',
       ejecutivoAsignado:'Carla', usuarioSolicitante:'Nicolás', estado:'Asignada',
-      codigoCatalogo:'', fechaCatalogo:'', horaCatalogo:'' },
+      codigoCatalogo:'', fechaCatalogo:'', horaCatalogo:'', skusCreados:0 },
     { fecha:'2026-08-08', hora:'09:05:00', codigoSolicitud:'SOL-DEMO0002', categoria:'Chips Leds',
       motivo:'ERP - mercadería en tránsito', cantidadSkus:1, observaciones:'',
       ejecutivoAsignado:'Martín', usuarioSolicitante:'Nicolás', estado:'Código cargado',
-      codigoCatalogo:'CAT-88213', fechaCatalogo:'2026-08-09', horaCatalogo:'10:15:00' }
+      codigoCatalogo:'CAT-88213', fechaCatalogo:'2026-08-09', horaCatalogo:'10:15:00', skusCreados:1 }
   ];
 }
 
@@ -1049,7 +1049,7 @@ function renderSolicitudCard(s){
         <span class="badge ${estadoCls}">${escapeHtml(s.estado)}</span>
       </div>
 
-      <div style="margin-top:10px; padding-top:10px; border-top:1px solid var(--border-soft);">
+      <div style="margin-top:10px; padding-top:10px; border-top:1px solid var(--border-soft); display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:10px;">
         ${tieneCodigo ? `
           <div style="font-size:12.5px; color:var(--ok); display:flex; align-items:center; gap:6px;">
             ✔ Código de catálogo: <strong>${escapeHtml(s.codigoCatalogo)}</strong>
@@ -1063,6 +1063,10 @@ function renderSolicitudCard(s){
             <button class="ai-prompt-btn" data-confirmar-codigo="${escapeHtml(s.codigoSolicitud)}">✔ Confirmar código</button>
           </div>
         `}
+        <button class="ai-prompt-btn" data-crear-desde-solicitud="${escapeHtml(s.codigoSolicitud)}"
+          style="background:var(--ml-soft); border-color:var(--ml-ring); color:var(--ml-strong); white-space:nowrap;">
+          🆕 Crear publicación${s.cantidadSkus ? ` (${s.skusCreados}/${s.cantidadSkus})` : ''}
+        </button>
       </div>
     </div>`;
 }
@@ -1084,6 +1088,22 @@ function attachSolicitudesEvents(){
   document.querySelectorAll('[data-confirmar-codigo]').forEach(btn => {
     btn.addEventListener('click', () => confirmarCodigoCatalogo(btn.dataset.confirmarCodigo, btn));
   });
+
+  document.querySelectorAll('[data-crear-desde-solicitud]').forEach(btn => {
+    btn.addEventListener('click', () => iniciarCreacionDesdeSolicitud(btn.dataset.crearDesdeSolicitud));
+  });
+}
+
+async function iniciarCreacionDesdeSolicitud(codigoSolicitud){
+  const s = (state.solicitudes || []).find(x => x.codigoSolicitud === codigoSolicitud);
+  if (!s) return;
+
+  await loadPlantillasIfNeeded();
+  state.view = 'publicacionesNuevas';
+  seleccionarCategoriaPubNueva(s.categoria);
+  state.pubNueva.solicitudOrigen = codigoSolicitud;
+  state.pubNueva.metaSolicitud = { cantidadSkus: Number(s.cantidadSkus) || 0, skusCreados: Number(s.skusCreados) || 0 };
+  render();
 }
 
 async function confirmarCodigoCatalogo(codigoSolicitud, btn){
@@ -1244,6 +1264,15 @@ function renderPublicacionesNuevas(){
 
   const { completos, totales, faltantes } = calcularCompletitudPubNueva(campos);
 
+  const meta = state.pubNueva.metaSolicitud;
+  if (state.pubNueva.solicitudOrigen && meta && meta.cantidadSkus > 0){
+    html += `
+      <div class="pubnueva-sugerencia" style="background:var(--ml-soft); border-color:var(--ml-ring);">
+        <div>📋 Publicando para la solicitud <strong>${escapeHtml(state.pubNueva.solicitudOrigen)}</strong> —
+          SKU ${meta.skusCreados + 1} de ${meta.cantidadSkus} pedidos</div>
+      </div>`;
+  }
+
   html += `
     <div class="pubnueva-resumen">
       <div><strong>${escapeHtml(catSeleccionada)}</strong></div>
@@ -1262,9 +1291,13 @@ function renderPublicacionesNuevas(){
     html += `</div>`;
   });
 
+  const puedeCrearOtroSku = state.pubNueva.solicitudOrigen && state.pubNueva.codigoTemp
+    && meta && meta.skusCreados < meta.cantidadSkus;
+
   html += `
     <div style="display:flex; gap:10px; margin:24px 0 16px; flex-wrap:wrap; align-items:center;">
       <button class="confirm-btn" id="btnGuardarBorrador">💾 Guardar borrador</button>
+      ${puedeCrearOtroSku ? `<button class="back-btn" id="btnSiguienteSku" style="background:var(--ml-soft); border-color:var(--ml-ring); color:var(--ml-strong);">➕ Crear el siguiente SKU (${meta.skusCreados}/${meta.cantidadSkus})</button>` : ''}
       <button class="back-btn" id="btnExportarML">📤 Exportar a Excel de ML</button>
       <input type="file" id="inputPlantillaML" accept=".xlsx,.xls" style="display:none;">
       <button class="back-btn" id="btnExportarMultiple">📦 Exportar varias de esta categoría</button>
@@ -1426,6 +1459,9 @@ function attachPublicacionesNuevasEvents(){
   const btnGuardar = document.getElementById('btnGuardarBorrador');
   if (btnGuardar) btnGuardar.addEventListener('click', guardarBorradorPubNueva);
 
+  const btnSiguienteSku = document.getElementById('btnSiguienteSku');
+  if (btnSiguienteSku) btnSiguienteSku.addEventListener('click', crearSiguienteSkuDeSolicitud);
+
   const btnExportar = document.getElementById('btnExportarML');
   if (btnExportar) btnExportar.addEventListener('click', () => {
     document.getElementById('inputPlantillaML').click();
@@ -1506,6 +1542,29 @@ function seleccionarCategoriaPubNueva(categoria){
   render();
 }
 
+/**
+ * Reinicia los campos del wizard para cargar el próximo SKU de la misma
+ * solicitud (mantiene categoría, solicitudOrigen y el contador de
+ * progreso) — sin obligar, solo da continuidad rápida cuando pediste
+ * varios SKUs de una vez.
+ */
+function crearSiguienteSkuDeSolicitud(){
+  const categoria = state.pubNueva.categoria;
+  const solicitudOrigen = state.pubNueva.solicitudOrigen;
+  const meta = state.pubNueva.metaSolicitud;
+
+  state.pubNueva = { categoria, codigoTemp: '', campos: {}, vinculacion: {}, estadoBorrador: '', solicitudOrigen, metaSolicitud: meta };
+
+  const camposCat = (state.plantillas.camposPorCategoria[categoria] || []);
+  camposCat.forEach(c => {
+    if (c.tipoControl === 'fijo' && c.valorPorDefecto){
+      state.pubNueva.campos[c.clave] = c.valorPorDefecto;
+    }
+  });
+  showToast(`Listo para el SKU ${meta.skusCreados + 1} de ${meta.cantidadSkus}`);
+  render();
+}
+
 async function guardarBorradorPubNueva(){
   const btn = document.getElementById('btnGuardarBorrador');
   const original = btn.textContent;
@@ -1523,14 +1582,18 @@ async function guardarBorradorPubNueva(){
       categoria: state.pubNueva.categoria,
       codigoTemp: state.pubNueva.codigoTemp,
       campos: JSON.stringify(state.pubNueva.campos),
-      usuario: state.currentUser
+      usuario: state.currentUser,
+      solicitudOrigen: state.pubNueva.solicitudOrigen || ''
     });
     if (json.error) throw new Error(json.error);
+    const eraNuevo = !state.pubNueva.codigoTemp;
     state.pubNueva.codigoTemp = json.codigoTemp;
+    if (eraNuevo && state.pubNueva.metaSolicitud) state.pubNueva.metaSolicitud.skusCreados++;
     showToast(
       `Guardado ✓ (${json.completos}/${json.totales} campos) — ` +
       (json.estado === 'Completa' ? 'lista para exportar' : `faltan ${json.faltantesObligatorios.length} obligatorio(s)`)
     );
+    render();
   } catch (err){
     showToast('Error al guardar: ' + err.message);
   } finally {
