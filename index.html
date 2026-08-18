@@ -706,6 +706,7 @@ document.getElementById('brandHome').addEventListener('click', goHome);
 document.getElementById('brandHome').addEventListener('keypress', e => { if (e.key==='Enter') goHome(); });
 document.getElementById('btnResumen').addEventListener('click', showResumenModal);
 document.getElementById('btnPublicacionesNuevas').addEventListener('click', () => {
+  state.plantillas = null; // fuerza traer la versión más fresca de PlantillasPublicacion
   state.view = 'publicacionesNuevas';
   render();
 });
@@ -1098,7 +1099,7 @@ async function iniciarCreacionDesdeSolicitud(codigoSolicitud){
   const s = (state.solicitudes || []).find(x => x.codigoSolicitud === codigoSolicitud);
   if (!s) return;
 
-  await loadPlantillasIfNeeded();
+  await loadPlantillasIfNeeded(true);
   state.view = 'publicacionesNuevas';
   seleccionarCategoriaPubNueva(s.categoria);
   state.pubNueva.solicitudOrigen = codigoSolicitud;
@@ -1180,8 +1181,8 @@ async function enviarSolicitud(){
    PUBLICACIONES NUEVAS (wizard de carga por categoría, hacia carga masiva ML)
    ========================================================================== */
 
-async function loadPlantillasIfNeeded(){
-  if (state.plantillas) return;
+async function loadPlantillasIfNeeded(forzar){
+  if (state.plantillas && !forzar) return;
   if (!API_URL){
     state.plantillas = buildDemoPlantillas();
     return;
@@ -1283,34 +1284,46 @@ function renderPublicacionesNuevas(){
     </div>
   `;
 
-  Object.keys(secciones).forEach(seccion => {
-    html += `<div class="checklist-section"><h4>${escapeHtml(seccion || 'General')}</h4>`;
-    secciones[seccion].forEach(c => {
-      html += renderCampoPubNueva(c);
-    });
-    html += `</div>`;
-  });
-
-  const puedeCrearOtroSku = state.pubNueva.solicitudOrigen && state.pubNueva.codigoTemp
-    && meta && meta.skusCreados < meta.cantidadSkus;
-
+  const vistaActiva = state.pubNueva.vistaActiva || 'contenido';
   html += `
-    <div style="display:flex; gap:10px; margin:24px 0 16px; flex-wrap:wrap; align-items:center;">
-      <button class="confirm-btn" id="btnGuardarBorrador">💾 Guardar borrador</button>
-      ${puedeCrearOtroSku ? `<button class="back-btn" id="btnSiguienteSku" style="background:var(--ml-soft); border-color:var(--ml-ring); color:var(--ml-strong);">➕ Crear el siguiente SKU (${meta.skusCreados}/${meta.cantidadSkus})</button>` : ''}
-      <button class="back-btn" id="btnExportarML">📤 Exportar a Excel de ML</button>
-      <input type="file" id="inputPlantillaML" accept=".xlsx,.xls" style="display:none;">
-      <button class="back-btn" id="btnExportarMultiple">📦 Exportar varias de esta categoría</button>
-      <input type="file" id="inputPlantillaMLMultiple" accept=".xlsx,.xls" style="display:none;">
+    <div class="view-tabs" style="margin:0 0 18px; justify-content:flex-start;">
+      <button data-vista-pn="contenido" class="${vistaActiva==='contenido'?'active':''}">📝 Crear contenido</button>
+      <button data-vista-pn="vinculacion" class="${vistaActiva==='vinculacion'?'active':''}">🔗 Vincular</button>
     </div>
-    <div style="font-size:11.5px; color:var(--ink-soft); margin:-10px 0 24px;">
-      Te va a pedir la planilla original de ML de esta categoría (la que descargaste sin tocar).
-    </div>
+  `;
 
-    <div id="panelExportarMultiple"></div>
+  if (vistaActiva === 'contenido'){
+    Object.keys(secciones).forEach(seccion => {
+      html += `<div class="checklist-section"><h4>${escapeHtml(seccion || 'General')}</h4>`;
+      secciones[seccion].forEach(c => {
+        html += renderCampoPubNueva(c);
+      });
+      html += `</div>`;
+    });
 
-    ${renderSeccionVinculacion()}
-  </div>`;
+    const puedeCrearOtroSku = state.pubNueva.solicitudOrigen && state.pubNueva.codigoTemp
+      && meta && meta.skusCreados < meta.cantidadSkus;
+
+    html += `
+      <div style="display:flex; gap:10px; margin:24px 0 16px; flex-wrap:wrap; align-items:center;">
+        <button class="confirm-btn" id="btnGuardarBorrador">💾 Guardar borrador</button>
+        ${puedeCrearOtroSku ? `<button class="back-btn" id="btnSiguienteSku" style="background:var(--ml-soft); border-color:var(--ml-ring); color:var(--ml-strong);">➕ Crear el siguiente SKU (${meta.skusCreados}/${meta.cantidadSkus})</button>` : ''}
+        <button class="back-btn" id="btnExportarML">📤 Exportar a Excel de ML</button>
+        <input type="file" id="inputPlantillaML" accept=".xlsx,.xls" style="display:none;">
+        <button class="back-btn" id="btnExportarMultiple">📦 Exportar varias de esta categoría</button>
+        <input type="file" id="inputPlantillaMLMultiple" accept=".xlsx,.xls" style="display:none;">
+      </div>
+      <div style="font-size:11.5px; color:var(--ink-soft); margin:-10px 0 24px;">
+        Te va a pedir la planilla original de ML de esta categoría (la que descargaste sin tocar).
+      </div>
+
+      <div id="panelExportarMultiple"></div>
+    `;
+  } else {
+    html += renderSeccionVinculacion();
+  }
+
+  html += `</div>`;
 
   return html;
 }
@@ -1454,6 +1467,13 @@ function attachPublicacionesNuevasEvents(){
     };
     el.addEventListener('input', actualizar);
     el.addEventListener('change', actualizar);
+  });
+
+  document.querySelectorAll('[data-vista-pn]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      state.pubNueva.vistaActiva = btn.dataset.vistaPn;
+      render();
+    });
   });
 
   const btnGuardar = document.getElementById('btnGuardarBorrador');
