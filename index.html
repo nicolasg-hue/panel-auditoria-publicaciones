@@ -443,7 +443,7 @@ const state = {
   currentUser: '',
   pendingSaves: 0,
   plantillas: null,     // se carga bajo demanda: { categorias, camposPorCategoria }
-  pubNueva: { categoria: '', codigoTemp: '', campos: {} },
+  pubNueva: { categoria: '', codigoTemp: '', campos: {}, vinculacion: {}, estadoBorrador: '' },
   pubNuevaCodigoTentativo: '',
   pubNuevaSugerencia: null,  // { categoria, prefijo, coincidencias, buscado }
   solicitudes: null,         // se carga bajo demanda
@@ -1263,15 +1263,64 @@ function renderPublicacionesNuevas(){
   });
 
   html += `
-    <div style="display:flex; gap:10px; margin:24px 0 40px; flex-wrap:wrap; align-items:center;">
+    <div style="display:flex; gap:10px; margin:24px 0 16px; flex-wrap:wrap; align-items:center;">
       <button class="confirm-btn" id="btnGuardarBorrador">💾 Guardar borrador</button>
       <button class="back-btn" id="btnExportarML">📤 Exportar a Excel de ML</button>
       <input type="file" id="inputPlantillaML" accept=".xlsx,.xls" style="display:none;">
-      <span style="font-size:11.5px; color:var(--ink-soft);">Te va a pedir la planilla original de ML de esta categoría (la que descargaste sin tocar).</span>
+      <button class="back-btn" id="btnExportarMultiple">📦 Exportar varias de esta categoría</button>
+      <input type="file" id="inputPlantillaMLMultiple" accept=".xlsx,.xls" style="display:none;">
     </div>
+    <div style="font-size:11.5px; color:var(--ink-soft); margin:-10px 0 24px;">
+      Te va a pedir la planilla original de ML de esta categoría (la que descargaste sin tocar).
+    </div>
+
+    <div id="panelExportarMultiple"></div>
+
+    ${renderSeccionVinculacion()}
   </div>`;
 
   return html;
+}
+
+function renderSeccionVinculacion(){
+  const v = state.pubNueva.vinculacion || {};
+  const yaVinculada = state.pubNueva.estadoBorrador === 'Vinculada';
+
+  return `
+    <div class="section-card" style="margin-bottom:40px; ${yaVinculada ? 'opacity:.7;' : ''}">
+      <h3>🔗 Vinculación y datos reales</h3>
+      <p style="font-size:12.5px; color:var(--ink-soft); margin:-6px 0 14px;">
+        Una vez que la publicación ya está creada de verdad en Mercado Libre, cargá estos datos y confirmá
+        para que quede en el flujo normal del optimizador.
+      </p>
+      <div class="field-row">
+        <label>MLA real *</label>
+        <input type="text" id="vincMlaReal" value="${escapeHtml(v.mlaReal||'')}" placeholder="Ej: MLA123456789"
+          ${yaVinculada?'disabled':''} style="padding:8px 10px; border:1px solid var(--border); border-radius:8px; font:inherit; width:100%; max-width:280px;">
+      </div>
+      <div class="field-row">
+        <label>Tipo de publicación *</label>
+        <select id="vincTipoPublicacion" ${yaVinculada?'disabled':''} style="padding:8px 10px; border:1px solid var(--border); border-radius:8px; font:inherit; width:100%; max-width:220px;">
+          <option value="">Elegir…</option>
+          <option value="Clásica" ${v.tipoPublicacion==='Clásica'?'selected':''}>Clásica</option>
+          <option value="Premium" ${v.tipoPublicacion==='Premium'?'selected':''}>Premium</option>
+        </select>
+      </div>
+      ${v.tipoPublicacion === 'Premium' ? `
+      <div class="field-row">
+        <label>Cuotas</label>
+        <input type="number" id="vincCuotas" value="${escapeHtml(v.cuotas||'')}" min="1" ${yaVinculada?'disabled':''}
+          style="padding:8px 10px; border:1px solid var(--border); border-radius:8px; font:inherit; width:140px;">
+      </div>` : ''}
+      <div class="field-row">
+        <label>SKU de variante</label>
+        <input type="text" id="vincSkuVariante" value="${escapeHtml(v.skuVariante||'')}" placeholder="Si tiene variante"
+          ${yaVinculada?'disabled':''} style="padding:8px 10px; border:1px solid var(--border); border-radius:8px; font:inherit; width:100%; max-width:280px;">
+      </div>
+      ${yaVinculada
+        ? `<div style="color:var(--ok); font-size:13px; font-weight:600; margin-top:6px;">✔ Vinculada — proceso completo</div>`
+        : `<button class="confirm-btn" id="btnVincular" style="margin-top:10px;">🔗 Vincular al Optimizador</button>`}
+    </div>`;
 }
 
 function renderCampoPubNueva(c){
@@ -1383,6 +1432,24 @@ function attachPublicacionesNuevasEvents(){
   });
   const inputPlantillaML = document.getElementById('inputPlantillaML');
   if (inputPlantillaML) inputPlantillaML.addEventListener('change', handleExportarExcelML);
+
+  const btnExportarMultiple = document.getElementById('btnExportarMultiple');
+  if (btnExportarMultiple) btnExportarMultiple.addEventListener('click', abrirPanelExportarMultiple);
+  const inputMultiple = document.getElementById('inputPlantillaMLMultiple');
+  if (inputMultiple) inputMultiple.addEventListener('change', handleExportarMultipleExcelML);
+
+  // Vinculación
+  const vincMap = { vincMlaReal:'mlaReal', vincTipoPublicacion:'tipoPublicacion', vincCuotas:'cuotas', vincSkuVariante:'skuVariante' };
+  Object.keys(vincMap).forEach(id => {
+    const el = document.getElementById(id);
+    if (!el) return;
+    el.addEventListener('change', () => {
+      state.pubNueva.vinculacion[vincMap[id]] = el.value;
+      if (id === 'vincTipoPublicacion') render(); // para mostrar/ocultar el campo Cuotas
+    });
+  });
+  const btnVincular = document.getElementById('btnVincular');
+  if (btnVincular) btnVincular.addEventListener('click', vincularPublicacionNueva);
 }
 
 // Como renderPublicacionesNuevas() re-renderiza todo el HTML (para
@@ -1423,7 +1490,7 @@ async function buscarSugerenciaCategoria(){
 
 function seleccionarCategoriaPubNueva(categoria){
   if (!categoria) return;
-  state.pubNueva = { categoria, codigoTemp: '', campos: {} };
+  state.pubNueva = { categoria, codigoTemp: '', campos: {}, vinculacion: {}, estadoBorrador: '' };
   // Si venías de escribir un código madre, lo llevamos como SKU inicial.
   if (state.pubNuevaCodigoTentativo){
     state.pubNueva.campos.sku = state.pubNuevaCodigoTentativo.trim();
@@ -1509,52 +1576,185 @@ async function handleExportarExcelML(e){
       return;
     }
     const ws = wb.Sheets[categoria];
-
-    // Columna que usamos como "señal" de fila vacía: el Título. Buscamos la
-    // primera fila desde la 9 (donde ML empieza a esperar productos) que
-    // todavía no tenga nada cargado ahí.
-    const campoTitulo = campos.find(c => c.clave === 'titulo');
-    const colTitulo = campoTitulo ? XLSX.utils.decode_col(campoTitulo.columnaExcel) : 1;
-
-    let filaDestino = 9; // 1-indexed, como en el Excel real
-    while (true){
-      const ref = XLSX.utils.encode_cell({ r: filaDestino - 1, c: colTitulo });
-      const celda = ws[ref];
-      if (!celda || celda.v === undefined || celda.v === '') break;
-      filaDestino++;
-      if (filaDestino > 10000) { showToast('No se encontró una fila libre en la planilla'); return; }
-    }
-
-    // Escribimos cada campo en su columna real, incluyendo los calculados
-    // (ej. cantidad de caracteres) y los fijos (ej. cargo por vender).
-    campos.forEach(c => {
-      if (!c.columnaExcel) return;
-      let valor = state.pubNueva.campos[c.clave];
-      if (c.tipoControl === 'calculado'){
-        valor = String(state.pubNueva.campos[c.referencia] || '').length;
-      }
-      if (valor === undefined || valor === null || valor === '') return;
-
-      const col = XLSX.utils.decode_col(c.columnaExcel);
-      const ref = XLSX.utils.encode_cell({ r: filaDestino - 1, c: col });
-      const esNumero = c.tipoControl === 'number' || c.tipoControl === 'calculado';
-      const valorFinal = esNumero && !isNaN(Number(valor)) ? Number(valor) : String(valor);
-
-      if (ws[ref]){
-        // Reescribimos el valor pero conservamos el formato/estilo de la celda original.
-        ws[ref].v = valorFinal;
-        ws[ref].t = typeof valorFinal === 'number' ? 'n' : 's';
-        delete ws[ref].f; // por si la celda tenía una fórmula de ejemplo, la pisamos con el dato real
-      } else {
-        ws[ref] = { v: valorFinal, t: typeof valorFinal === 'number' ? 'n' : 's' };
-      }
-    });
+    const filaDestino = escribirFilaEnPlanilla(ws, campos, state.pubNueva.campos);
 
     const nombreArchivo = `ML_${categoria.replace(/\s+/g,'_')}_${state.pubNueva.campos.sku || state.pubNueva.codigoTemp || 'export'}.xlsx`;
     XLSX.writeFile(wb, nombreArchivo);
     showToast(`Exportado ✓ — fila ${filaDestino} de la pestaña "${categoria}"`);
   } catch (err){
     showToast('Error al exportar: ' + err.message);
+  }
+}
+
+/**
+ * Escribe UN producto en la primera fila libre de la planilla (desde la
+ * fila 9), usando la columna del Título como "señal" de fila vacía.
+ * Devuelve el número de fila (1-indexed) donde quedó escrito. Reutilizada
+ * tanto por la exportación de un solo producto como por la múltiple.
+ */
+function escribirFilaEnPlanilla(ws, campos, camposValores, filaDesde){
+  const campoTitulo = campos.find(c => c.clave === 'titulo');
+  const colTitulo = campoTitulo ? XLSX.utils.decode_col(campoTitulo.columnaExcel) : 1;
+
+  let filaDestino = filaDesde || 9; // 1-indexed, como en el Excel real
+  while (true){
+    const ref = XLSX.utils.encode_cell({ r: filaDestino - 1, c: colTitulo });
+    const celda = ws[ref];
+    if (!celda || celda.v === undefined || celda.v === '') break;
+    filaDestino++;
+    if (filaDestino > 10000) throw new Error('No se encontró una fila libre en la planilla');
+  }
+
+  campos.forEach(c => {
+    if (!c.columnaExcel) return;
+    let valor = camposValores[c.clave];
+    if (c.tipoControl === 'calculado'){
+      valor = String(camposValores[c.referencia] || '').length;
+    }
+    if (valor === undefined || valor === null || valor === '') return;
+
+    const col = XLSX.utils.decode_col(c.columnaExcel);
+    const ref = XLSX.utils.encode_cell({ r: filaDestino - 1, c: col });
+    const esNumero = c.tipoControl === 'number' || c.tipoControl === 'calculado';
+    const valorFinal = esNumero && !isNaN(Number(valor)) ? Number(valor) : String(valor);
+
+    if (ws[ref]){
+      ws[ref].v = valorFinal;
+      ws[ref].t = typeof valorFinal === 'number' ? 'n' : 's';
+      delete ws[ref].f;
+    } else {
+      ws[ref] = { v: valorFinal, t: typeof valorFinal === 'number' ? 'n' : 's' };
+    }
+  });
+
+  return filaDestino;
+}
+
+/* ---- Exportación múltiple: varios borradores de la misma categoría ---- */
+
+async function abrirPanelExportarMultiple(){
+  const panel = document.getElementById('panelExportarMultiple');
+  const categoria = state.pubNueva.categoria;
+  panel.innerHTML = `<div class="loading-screen" style="padding:16px 0;"><div class="spinner"></div><span>Buscando borradores de "${escapeHtml(categoria)}"…</span></div>`;
+
+  let borradores;
+  try {
+    if (!API_URL){
+      borradores = [
+        { codigoTemp:'DRAFT-DEMO1', categoria, campos:{ titulo:'Tira LED RGB 5m (demo)', sku:'DEMO-A1' }, camposCompletos:6, camposTotales:8 },
+        { codigoTemp:'DRAFT-DEMO2', categoria, campos:{ titulo:'Tira LED Blanco cálido 5m (demo)', sku:'DEMO-A2' }, camposCompletos:8, camposTotales:8 }
+      ];
+    } else {
+      const json = await jsonpRequest({ action: 'getBorradoresPublicacionNueva', categoria });
+      if (json.error) throw new Error(json.error);
+      borradores = json.borradores || [];
+    }
+  } catch (err){
+    panel.innerHTML = `<div class="empty-state"><h3>No se pudieron cargar los borradores</h3><p>${escapeHtml(err.message)}</p></div>`;
+    return;
+  }
+
+  if (!borradores.length){
+    panel.innerHTML = `<div class="empty-state" style="padding:20px;"><p>No hay otros borradores guardados de "${escapeHtml(categoria)}" todavía.</p></div>`;
+    return;
+  }
+
+  panel.innerHTML = `
+    <div class="section-card" style="margin-bottom:20px;">
+      <h3>📦 Elegí cuáles exportar juntas</h3>
+      <div style="display:flex; flex-direction:column; gap:6px; margin:10px 0;">
+        ${borradores.map(b => `
+          <label style="display:flex; align-items:center; gap:8px; font-size:13px; padding:6px 0; border-bottom:1px solid var(--border-soft);">
+            <input type="checkbox" data-borrador-check="${escapeHtml(b.codigoTemp)}" checked>
+            <span style="flex:1;">${escapeHtml(b.campos.titulo || b.codigoTemp)}</span>
+            <span class="meta">${escapeHtml(b.campos.sku || '')} · ${b.camposCompletos}/${b.camposTotales} completos</span>
+          </label>`).join('')}
+      </div>
+      <button class="confirm-btn" id="btnConfirmarExportarMultiple">📤 Exportar seleccionadas</button>
+    </div>`;
+
+  panel._borradores = borradores;
+  document.getElementById('btnConfirmarExportarMultiple').addEventListener('click', () => {
+    const seleccionados = [...panel.querySelectorAll('[data-borrador-check]:checked')].map(c => c.dataset.borradorCheck);
+    if (!seleccionados.length){ showToast('Elegí al menos un borrador'); return; }
+    state._borradoresAExportar = borradores.filter(b => seleccionados.includes(b.codigoTemp));
+    document.getElementById('inputPlantillaMLMultiple').click();
+  });
+}
+
+async function handleExportarMultipleExcelML(e){
+  const file = e.target.files[0];
+  e.target.value = '';
+  if (!file) return;
+  const seleccionados = state._borradoresAExportar || [];
+  if (!seleccionados.length) return;
+
+  const categoria = state.pubNueva.categoria;
+  const campos = (state.plantillas.camposPorCategoria[categoria] || []);
+
+  showToast(`Exportando ${seleccionados.length} publicaciones…`);
+  try {
+    const buffer = await file.arrayBuffer();
+    const wb = XLSX.read(buffer, { type: 'array', cellStyles: true });
+    if (!wb.SheetNames.includes(categoria)){
+      showToast(`Esa planilla no tiene una pestaña "${categoria}".`);
+      return;
+    }
+    const ws = wb.Sheets[categoria];
+
+    let filaSiguiente = 9;
+    seleccionados.forEach(b => {
+      filaSiguiente = escribirFilaEnPlanilla(ws, campos, b.campos, filaSiguiente) + 1;
+    });
+
+    const nombreArchivo = `ML_${categoria.replace(/\s+/g,'_')}_lote_${seleccionados.length}.xlsx`;
+    XLSX.writeFile(wb, nombreArchivo);
+    showToast(`Exportado ✓ — ${seleccionados.length} publicaciones en "${categoria}"`);
+    document.getElementById('panelExportarMultiple').innerHTML = '';
+  } catch (err){
+    showToast('Error al exportar: ' + err.message);
+  }
+}
+
+/* ---- Vinculación: cierre del proceso hacia el optimizador ---- */
+
+async function vincularPublicacionNueva(){
+  const v = state.pubNueva.vinculacion;
+  if (!state.pubNueva.codigoTemp){
+    showToast('Guardá un borrador antes de vincular');
+    return;
+  }
+  if (!v.mlaReal || !v.tipoPublicacion){
+    showToast('Completá el MLA real y el tipo de publicación antes de vincular');
+    return;
+  }
+
+  const btn = document.getElementById('btnVincular');
+  const original = btn.textContent;
+  btn.disabled = true;
+  btn.textContent = 'Vinculando…';
+
+  try {
+    if (!API_URL){
+      await new Promise(r => setTimeout(r, 500));
+      showToast('Modo demo: se simularía la vinculación al optimizador');
+      state.pubNueva.estadoBorrador = 'Vinculada';
+      render();
+      return;
+    }
+    const json = await jsonpRequest({
+      action: 'vincularPublicacion', codigoTemp: state.pubNueva.codigoTemp,
+      mlaReal: v.mlaReal, tipoPublicacion: v.tipoPublicacion, cuotas: v.cuotas,
+      skuVariante: v.skuVariante, usuario: state.currentUser
+    });
+    if (json.error) throw new Error(json.error);
+    showToast('Vinculada ✓ — ya está en el flujo normal del optimizador');
+    state.pubNueva.estadoBorrador = 'Vinculada';
+    render();
+  } catch (err){
+    showToast('Error al vincular: ' + err.message);
+    btn.disabled = false;
+    btn.textContent = original;
   }
 }
 
