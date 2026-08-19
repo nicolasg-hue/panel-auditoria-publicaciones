@@ -447,7 +447,8 @@ const state = {
   pubNuevaCodigoTentativo: '',
   pubNuevaSugerencia: null,  // { categoria, prefijo, coincidencias, buscado }
   solicitudes: null,         // se carga bajo demanda
-  nuevaSolicitud: { categoria: '', motivo: '', cantidadSkus: '', observaciones: '', ejecutivoAsignado: '' }
+  filtrosSolicitudes: { estado: 'pendiente', ejecutivo: '' },
+  nuevaSolicitud: { categoria: '', motivo: '', cantidadSkus: '', observaciones: '', ejecutivoAsignado: '', fechaVencimiento: '' }
 };
 
 const ESTADOS_BASE = ['Pendiente', 'En revisión', 'Requiere cambios', 'Optimizada'];
@@ -997,6 +998,10 @@ function renderSolicitudes(){
           <input type="number" id="solCantidadSkus" min="1" value="${escapeHtml(f.cantidadSkus)}" style="padding:8px 10px; border:1px solid var(--border); border-radius:8px; font:inherit; width:140px;">
         </div>
         <div class="field-row">
+          <label>Fecha de vencimiento</label>
+          <input type="date" id="solFechaVencimiento" value="${escapeHtml(f.fechaVencimiento||'')}" style="padding:8px 10px; border:1px solid var(--border); border-radius:8px; font:inherit; width:180px;">
+        </div>
+        <div class="field-row">
           <label>Asignar a *</label>
           <select id="solEjecutivo" style="padding:8px 10px; border:1px solid var(--border); border-radius:8px; font:inherit; width:100%; max-width:320px;">
             <option value="">Elegí un ejecutivo…</option>
@@ -1014,27 +1019,50 @@ function renderSolicitudes(){
       </div>
 
       <h3 style="font-size:14px; margin-bottom:10px;">Solicitudes existentes</h3>
+      <div class="filters" style="margin-bottom:14px;">
+        <div class="view-tabs" style="margin-left:0;">
+          ${[['pendiente','Pendientes'],['finalizada','Finalizadas'],['todas','Todas']].map(([k,l]) =>
+            `<button data-filtro-sol-estado="${k}" class="${(state.filtrosSolicitudes.estado===k)?'active':''}">${l}</button>`).join('')}
+        </div>
+        <select id="filtroSolEjecutivo">
+          <option value="">Ejecutivo (todos)</option>
+          ${usuarios.map(u => `<option value="${escapeHtml(u)}" ${state.filtrosSolicitudes.ejecutivo===u?'selected':''}>${escapeHtml(u)}</option>`).join('')}
+        </select>
+      </div>
       ${renderListaSolicitudes()}
     </div>
   `;
 }
 
+function filtrarSolicitudes(){
+  const f = state.filtrosSolicitudes;
+  return (state.solicitudes || []).filter(s => {
+    if (f.estado === 'pendiente' && s.estado === 'Finalizada') return false;
+    if (f.estado === 'finalizada' && s.estado !== 'Finalizada') return false;
+    if (f.ejecutivo && s.ejecutivoAsignado !== f.ejecutivo) return false;
+    return true;
+  });
+}
+
 function renderListaSolicitudes(){
   if (!state.solicitudes) return `<div class="loading-screen" style="padding:30px 0;"><div class="spinner"></div></div>`;
-  if (!state.solicitudes.length) return `<div class="empty-state"><h3>Todavía no hay solicitudes</h3></div>`;
+  const filtradas = filtrarSolicitudes();
+  if (!filtradas.length) return `<div class="empty-state"><h3>No hay solicitudes con estos filtros</h3></div>`;
 
   return `
     <div style="display:flex; flex-direction:column; gap:10px;">
-      ${state.solicitudes.map(s => renderSolicitudCard(s)).join('')}
+      ${filtradas.map(s => renderSolicitudCard(s)).join('')}
     </div>`;
 }
 
 function renderSolicitudCard(s){
   const tieneCodigo = String(s.codigoCatalogo || '').trim() !== '';
-  const estadoCls = s.estado === 'Código cargado' ? 'revision' : 'pendiente';
+  const esFinalizada = s.estado === 'Finalizada';
+  const estadoCls = esFinalizada ? 'optimizada' : (s.estado === 'Código cargado' ? 'revision' : 'pendiente');
+  const fechaVenc = String(s.fechaVencimiento || '').trim();
 
   return `
-    <div class="section-card" style="padding:14px 16px;">
+    <div class="section-card" style="padding:14px 16px; ${esFinalizada ? 'opacity:.75;' : ''}">
       <div style="display:flex; justify-content:space-between; align-items:flex-start; gap:10px; flex-wrap:wrap;">
         <div>
           <div class="producto" style="font-size:14px;">${escapeHtml(s.categoria)}
@@ -1044,10 +1072,14 @@ function renderSolicitudCard(s){
             👤 ${escapeHtml(s.ejecutivoAsignado)} · ${escapeHtml(s.fecha)} ${escapeHtml((s.hora||'').slice(0,5))}
             ${s.cantidadSkus ? ` · ${escapeHtml(String(s.cantidadSkus))} SKU(s)` : ''}
             · pedido por ${escapeHtml(s.usuarioSolicitante || '—')}
+            ${fechaVenc ? ` · vence ${escapeHtml(fechaVenc)}` : ''}
           </div>
           ${s.observaciones ? `<div class="meta" style="margin-top:2px; font-style:italic;">${escapeHtml(s.observaciones)}</div>` : ''}
         </div>
-        <span class="badge ${estadoCls}">${escapeHtml(s.estado)}</span>
+        <div style="display:flex; align-items:center; gap:8px;">
+          <span class="badge ${estadoCls}">${escapeHtml(s.estado)}</span>
+          ${!esFinalizada ? `<button class="ai-prompt-btn" data-finalizar-solicitud="${escapeHtml(s.codigoSolicitud)}" title="Marcar como finalizada a mano">✔ Finalizar</button>` : ''}
+        </div>
       </div>
 
       <div style="margin-top:10px; padding-top:10px; border-top:1px solid var(--border-soft); display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:10px;">
@@ -1066,7 +1098,7 @@ function renderSolicitudCard(s){
         `}
         <button class="ai-prompt-btn" data-crear-desde-solicitud="${escapeHtml(s.codigoSolicitud)}"
           style="background:var(--ml-soft); border-color:var(--ml-ring); color:var(--ml-strong); white-space:nowrap;">
-          🆕 Crear publicación${s.cantidadSkus ? ` (${s.skusCreados}/${s.cantidadSkus})` : ''}
+          🆕 Crear publicación${s.cantidadSkus ? ` (${s.skusVinculados}/${s.cantidadSkus})` : ''}
         </button>
       </div>
     </div>`;
@@ -1076,11 +1108,21 @@ function attachSolicitudesEvents(){
   const btnHome = document.getElementById('btnBackHomeDesdeSolicitud');
   if (btnHome) btnHome.addEventListener('click', goHome);
 
-  const campos = ['solCategoria','solMotivo','solCantidadSkus','solEjecutivo','solObservaciones'];
-  const mapaClave = { solCategoria:'categoria', solMotivo:'motivo', solCantidadSkus:'cantidadSkus', solEjecutivo:'ejecutivoAsignado', solObservaciones:'observaciones' };
+  const campos = ['solCategoria','solMotivo','solCantidadSkus','solEjecutivo','solObservaciones','solFechaVencimiento'];
+  const mapaClave = { solCategoria:'categoria', solMotivo:'motivo', solCantidadSkus:'cantidadSkus', solEjecutivo:'ejecutivoAsignado', solObservaciones:'observaciones', solFechaVencimiento:'fechaVencimiento' };
   campos.forEach(id => {
     const el = document.getElementById(id);
     if (el) el.addEventListener('change', () => { state.nuevaSolicitud[mapaClave[id]] = el.value; });
+  });
+
+  document.querySelectorAll('[data-filtro-sol-estado]').forEach(btn => {
+    btn.addEventListener('click', () => { state.filtrosSolicitudes.estado = btn.dataset.filtroSolEstado; render(); });
+  });
+  const filtroEjecutivo = document.getElementById('filtroSolEjecutivo');
+  if (filtroEjecutivo) filtroEjecutivo.addEventListener('change', () => { state.filtrosSolicitudes.ejecutivo = filtroEjecutivo.value; render(); });
+
+  document.querySelectorAll('[data-finalizar-solicitud]').forEach(btn => {
+    btn.addEventListener('click', () => finalizarSolicitudManual(btn.dataset.finalizarSolicitud));
   });
 
   const btnEnviar = document.getElementById('btnEnviarSolicitud');
@@ -1105,6 +1147,22 @@ async function iniciarCreacionDesdeSolicitud(codigoSolicitud){
   state.pubNueva.solicitudOrigen = codigoSolicitud;
   state.pubNueva.metaSolicitud = { cantidadSkus: Number(s.cantidadSkus) || 0, skusCreados: Number(s.skusCreados) || 0 };
   render();
+}
+
+async function finalizarSolicitudManual(codigoSolicitud){
+  if (!API_URL){
+    showToast('Modo demo: se simularía marcar la solicitud como finalizada');
+    return;
+  }
+  try {
+    const json = await jsonpRequest({ action: 'marcarSolicitudFinalizada', codigoSolicitud });
+    if (json.error) throw new Error(json.error);
+    showToast('Solicitud finalizada ✓');
+    await loadSolicitudesIfNeeded(true);
+    render();
+  } catch (err){
+    showToast('Error al finalizar: ' + err.message);
+  }
 }
 
 async function confirmarCodigoCatalogo(codigoSolicitud, btn){
@@ -1162,11 +1220,11 @@ async function enviarSolicitud(){
       action: 'crearSolicitud',
       categoria: f.categoria, motivo: f.motivo, cantidadSkus: f.cantidadSkus,
       observaciones: f.observaciones, ejecutivoAsignado: f.ejecutivoAsignado,
-      usuarioSolicitante: state.currentUser
+      usuarioSolicitante: state.currentUser, fechaVencimiento: f.fechaVencimiento
     });
     if (json.error) throw new Error(json.error);
     showToast(`Solicitud enviada ✓ (${json.codigoSolicitud}) — asignada a ${f.ejecutivoAsignado}`);
-    state.nuevaSolicitud = { categoria: '', motivo: '', cantidadSkus: '', observaciones: '', ejecutivoAsignado: '' };
+    state.nuevaSolicitud = { categoria: '', motivo: '', cantidadSkus: '', observaciones: '', ejecutivoAsignado: '', fechaVencimiento: '' };
     await loadSolicitudesIfNeeded(true);
     render();
   } catch (err){
@@ -1254,7 +1312,12 @@ function renderPublicacionesNuevas(){
           <option value="">Elegí una categoría…</option>
           ${categorias.map(c => `<option value="${escapeHtml(c)}">${escapeHtml(c)}</option>`).join('')}
         </select>
-      </div>`;
+      </div>
+
+      <div style="margin-top:18px;">
+        <button class="back-btn" id="btnVerBorradores">📁 Ver borradores guardados</button>
+      </div>
+      <div id="panelBorradoresGuardados"></div>`;
     html += `</div>`;
     return html;
   }
@@ -1457,6 +1520,9 @@ function attachPublicacionesNuevasEvents(){
   if (selectorCategoria){
     selectorCategoria.addEventListener('change', e => seleccionarCategoriaPubNueva(e.target.value));
   }
+
+  const btnVerBorradores = document.getElementById('btnVerBorradores');
+  if (btnVerBorradores) btnVerBorradores.addEventListener('click', abrirPanelBorradoresGuardados);
 
   document.querySelectorAll('[data-campo-pn]').forEach(el => {
     let t;
@@ -1720,6 +1786,70 @@ function escribirFilaEnPlanilla(ws, campos, camposValores, filaDesde){
 }
 
 /* ---- Exportación múltiple: varios borradores de la misma categoría ---- */
+
+async function abrirPanelBorradoresGuardados(){
+  const panel = document.getElementById('panelBorradoresGuardados');
+  panel.innerHTML = `<div class="loading-screen" style="padding:16px 0;"><div class="spinner"></div><span>Buscando borradores guardados…</span></div>`;
+
+  let borradores;
+  try {
+    if (!API_URL){
+      borradores = [
+        { codigoTemp:'DRAFT-DEMO1', categoria:'Tiras de LED', estado:'Incompleta', campos:{ titulo:'Tira LED RGB 5m (demo)', sku:'DEMO-A1' }, camposCompletos:6, camposTotales:8 },
+        { codigoTemp:'DRAFT-DEMO2', categoria:'Chips Leds', estado:'Completa', campos:{ titulo:'Chip LED 5050 (demo)', sku:'DEMO-B1' }, camposCompletos:2, camposTotales:2 }
+      ];
+    } else {
+      const json = await jsonpRequest({ action: 'getBorradoresPublicacionNueva', categoria: '' });
+      if (json.error) throw new Error(json.error);
+      borradores = json.borradores || [];
+    }
+  } catch (err){
+    panel.innerHTML = `<div class="empty-state"><h3>No se pudieron cargar los borradores</h3><p>${escapeHtml(err.message)}</p></div>`;
+    return;
+  }
+
+  if (!borradores.length){
+    panel.innerHTML = `<div class="empty-state" style="padding:20px;"><p>Todavía no guardaste ningún borrador.</p></div>`;
+    return;
+  }
+
+  panel.innerHTML = `
+    <div class="section-card" style="margin:14px 0 20px;">
+      <h3>📁 Borradores guardados (${borradores.length})</h3>
+      <div style="display:flex; flex-direction:column; gap:6px; margin-top:10px;">
+        ${borradores.map(b => `
+          <div style="display:flex; align-items:center; gap:10px; padding:8px 0; border-bottom:1px solid var(--border-soft); flex-wrap:wrap;">
+            <span style="flex:1; min-width:200px;">
+              <strong>${escapeHtml(b.campos.titulo || b.codigoTemp)}</strong>
+              <span class="meta"> · ${escapeHtml(b.categoria)} · ${escapeHtml(b.campos.sku || '')}</span>
+            </span>
+            <span class="meta">${b.camposCompletos}/${b.camposTotales} completos</span>
+            <span class="badge ${b.estado==='Vinculada'?'optimizada':(b.estado==='Completa'?'revision':'pendiente')}">${escapeHtml(b.estado||'')}</span>
+            <button class="ai-prompt-btn" data-retomar-borrador="${escapeHtml(b.codigoTemp)}">Continuar</button>
+          </div>`).join('')}
+      </div>
+    </div>`;
+
+  panel._borradores = borradores;
+  panel.querySelectorAll('[data-retomar-borrador]').forEach(btn => {
+    btn.addEventListener('click', () => retomarBorrador(borradores.find(b => b.codigoTemp === btn.dataset.retomarBorrador)));
+  });
+}
+
+async function retomarBorrador(b){
+  if (!b) return;
+  await loadPlantillasIfNeeded(true);
+  seleccionarCategoriaPubNueva(b.categoria);
+  state.pubNueva.codigoTemp = b.codigoTemp;
+  state.pubNueva.campos = Object.assign({}, state.pubNueva.campos, b.campos);
+  if (b.mlaReal){
+    state.pubNueva.vistaActiva = 'vinculacion';
+    state.pubNueva.vinculacion = { mlaReal: b.mlaReal || '' };
+    state.pubNueva.estadoBorrador = b.estado === 'Vinculada' ? 'Vinculada' : '';
+  }
+  showToast('Borrador cargado — podés seguir editándolo');
+  render();
+}
 
 async function abrirPanelExportarMultiple(){
   const panel = document.getElementById('panelExportarMultiple');
